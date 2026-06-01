@@ -15,10 +15,10 @@ export async function GET(request: Request) {
 
   if (q) {
     where.OR = [
-      { name: { contains: q, mode: "insensitive" } },
-      { email: { contains: q, mode: "insensitive" } },
-      { company: { contains: q, mode: "insensitive" } },
-      { externalId: { contains: q, mode: "insensitive" } },
+      { name: { contains: q } },
+      { email: { contains: q } },
+      { company: { contains: q } },
+      { externalId: { contains: q } },
     ];
   }
 
