@@ -1,4 +1,6 @@
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
+import { normalizedRecord, importJob } from "@/lib/db/schema";
+import { eq, desc, or, ilike } from "drizzle-orm";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -7,26 +9,44 @@ export async function GET(request: Request) {
   const category = url.searchParams.get("category")?.trim();
   const importId = url.searchParams.get("importId")?.trim();
 
-  const where: Record<string, unknown> = {};
+  let query = db
+    .select({
+      record: normalizedRecord,
+      importJob: importJob,
+    })
+    .from(normalizedRecord)
+    .leftJoin(importJob, eq(normalizedRecord.importJobId, importJob.id))
+    .orderBy(desc(normalizedRecord.createdAt))
+    .$dynamic();
 
-  if (status) where.status = status;
-  if (category) where.category = category;
-  if (importId) where.importJobId = importId;
+  const conditions = [];
+
+  if (status) conditions.push(eq(normalizedRecord.status, status));
+  if (category) conditions.push(eq(normalizedRecord.category, category));
+  if (importId) conditions.push(eq(normalizedRecord.importJobId, importId));
 
   if (q) {
-    where.OR = [
-      { name: { contains: q } },
-      { email: { contains: q } },
-      { company: { contains: q } },
-      { externalId: { contains: q } },
-    ];
+    conditions.push(
+      or(
+        ilike(normalizedRecord.name, `%${q}%`),
+        ilike(normalizedRecord.email, `%${q}%`),
+        ilike(normalizedRecord.company, `%${q}%`),
+        ilike(normalizedRecord.externalId, `%${q}%`)
+      )
+    );
   }
 
-  const records = await prisma.normalizedRecord.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-    include: { importJob: true },
-  });
+  if (conditions.length > 0) {
+    const { and } = await import("drizzle-orm");
+    query = query.where(and(...conditions));
+  }
+
+  const results = await query;
+
+  const records = results.map((r) => ({
+    ...r.record,
+    importJob: r.importJob,
+  }));
 
   return Response.json({ records });
 }

@@ -1,9 +1,15 @@
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
+import { schemaProfile } from "@/lib/db/schema";
+import { desc } from "drizzle-orm";
 
 export async function GET() {
-  const profile = await prisma.schemaProfile.findFirst({
-    orderBy: { createdAt: "desc" },
-  });
+  const profiles = await db
+    .select()
+    .from(schemaProfile)
+    .orderBy(desc(schemaProfile.createdAt))
+    .limit(1);
+
+  const profile = profiles[0] ?? null;
 
   if (!profile) return Response.json({ profile: null });
 
