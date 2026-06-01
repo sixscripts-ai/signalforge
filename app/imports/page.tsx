@@ -2,14 +2,17 @@ import Link from "next/link";
 import SectionHeader from "@/components/SectionHeader";
 import ImportTable from "@/components/ImportTable";
 import EmptyState from "@/components/EmptyState";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
+import { importJob } from "@/lib/db/schema";
+import { desc } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
 export default async function ImportsPage() {
-  const imports = await prisma.importJob.findMany({
-    orderBy: { createdAt: "desc" },
-  });
+  const imports = await db
+    .select()
+    .from(importJob)
+    .orderBy(desc(importJob.createdAt));
 
   return (
     <div className="space-y-8">
