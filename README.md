@@ -1,36 +1,90 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SignalForge
+
+A data import and validation platform built with **Next.js 16**, **Prisma**, and **Tailwind CSS v4**. Upload CSV files, validate rows against configurable schemas, deduplicate records, and view analytics on import quality.
+
+## Features
+
+- **CSV Import** — Drag-and-drop file upload with real-time parsing via PapaParse
+- **Validation Engine** — Row-level validation using Zod schemas with per-field error reporting
+- **Deduplication** — Configurable dedupe strategies to catch duplicate records during import
+- **Normalization** — Transform raw rows into normalized records with consistent types
+- **Analytics Dashboard** — Visual breakdown of import quality, error rates, and record distribution
+- **Schema Profiles** — Define reusable field mappings, required fields, and validation rules
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Framework | [Next.js 16](https://nextjs.org/) (App Router) |
+| Language | TypeScript |
+| Database | SQLite (dev) via [Prisma](https://prisma.io) |
+| Styling | [Tailwind CSS v4](https://tailwindcss.com) |
+| CSV Parsing | [PapaParse](https://www.papaparse.com) |
+| Validation | [Zod](https://zod.dev) |
+| Linting | ESLint |
 
 ## Getting Started
 
-First, run the development server:
-
 ```bash
+# Install dependencies
+npm install
+
+# Set up environment
+cp .env.example .env.local
+# Edit .env.local — for local dev, use SQLite:
+# DATABASE_URL="file:./dev.db"
+
+# Run database migrations
+npm run db:migrate
+
+# Seed sample data (optional)
+npm run db:seed
+
+# Start the dev server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Project Structure
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+src/
+├── app/
+│   ├── api/            # API route handlers
+│   │   ├── analytics/  # Import analytics endpoints
+│   │   ├── health/     # Health check
+│   │   ├── imports/    # Import job CRUD
+│   │   ├── records/    # Normalized records
+│   │   └── schema-profile/  # Schema profile CRUD
+│   ├── imports/        # Import UI pages
+│   ├── globals.css     # Global styles
+│   ├── layout.tsx      # Root layout
+│   └── page.tsx        # Home page
+├── components/         # React components
+│   ├── AppShell.tsx    # Main app layout
+│   ├── ImportTable.tsx # Import job table
+│   ├── UploadDropzone.tsx  # File upload component
+│   ├── ValidationSummary.tsx  # Validation results
+│   └── ...             # More components
+├── lib/                # Core logic
+│   ├── parser.ts       # CSV parsing
+│   ├── normalizer.ts   # Row normalization
+│   ├── validators.ts   # Zod validation schemas
+│   ├── dedupe.ts       # Deduplication logic
+│   └── db.ts           # Prisma client
+└── prisma/
+    ├── schema.prisma   # Database schema
+    └── seed.ts         # Seed data
+```
 
-## Learn More
+## Scripts
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start development server |
+| `npm run build` | Build for production |
+| `npm run start` | Start production server |
+| `npm run lint` | Run ESLint |
+| `npm run db:migrate` | Run Prisma migrations |
+| `npm run db:seed` | Seed the database |

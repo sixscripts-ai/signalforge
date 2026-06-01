@@ -1,0 +1,97 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Enums removed for SQLite fallback; using String fields for local dev
+
+model ImportJob {
+  id            String        @id @default(cuid())
+  filename      String
+  sourceType    String
+  status        String
+  totalRows     Int
+  validRows     Int
+  invalidRows   Int
+  duplicateRows Int
+  createdAt     DateTime      @default(now())
+  completedAt   DateTime?
+  errorMessage  String?
+
+  rawRows          RawRow[]
+  validationErrors ValidationError[]
+  records          NormalizedRecord[]
+
+  @@index([createdAt])
+  @@index([status])
+}
+
+model RawRow {
+  id           String       @id @default(cuid())
+  importJobId  String
+  rowIndex     Int
+  rawData      String
+  status       String
+  errorSummary String?
+  createdAt    DateTime     @default(now())
+
+  importJob        ImportJob        @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  validationErrors ValidationError[]
+
+  @@index([importJobId])
+  @@index([status])
+}
+
+model ValidationError {
+  id          String             @id @default(cuid())
+  importJobId String
+  rawRowId    String?
+  rowIndex    Int
+  field       String
+  message     String
+  severity    String
+  createdAt   DateTime           @default(now())
+
+  importJob ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  rawRow    RawRow?   @relation(fields: [rawRowId], references: [id], onDelete: Cascade)
+
+  @@index([importJobId])
+  @@index([severity])
+}
+
+model NormalizedRecord {
+  id            String     @id @default(cuid())
+  importJobId   String
+  externalId    String?
+  name          String?
+  email         String?
+  company       String?
+  category      String?
+  amount        Float?
+  status        String?
+  dedupeKey     String
+  sourceRowIndex Int
+  createdAt     DateTime   @default(now())
+
+  importJob ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+
+  @@index([dedupeKey])
+  @@index([importJobId])
+  @@index([email])
+  @@index([createdAt])
+}
+
+model SchemaProfile {
+  id              String   @id @default(cuid())
+  name            String
+  requiredFields  String
+  fieldMappings   String
+  validationRules String
+  dedupeStrategy  String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
