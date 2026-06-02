@@ -1,14 +1,18 @@
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
+import { importJob, rawRow, validationError, normalizedRecord } from "@/lib/db/schema";
 import { MAX_ROW_COUNT, MAX_UPLOAD_BYTES } from "@/lib/constants";
 import { parseImportFile } from "@/lib/parser";
 import { mapFieldVariants, normalizeRow } from "@/lib/normalizer";
 import { validateRow } from "@/lib/validators";
 import { computeDedupeKey } from "@/lib/dedupe";
+import { desc, eq } from "drizzle-orm";
+import { nanoid } from "nanoid";
 
 export async function GET() {
-  const imports = await prisma.importJob.findMany({
-    orderBy: { createdAt: "desc" },
-  });
+  const imports = await db
+    .select()
+    .from(importJob)
+    .orderBy(desc(importJob.createdAt));
 
   return Response.json({ imports });
 }
@@ -45,8 +49,12 @@ export async function POST(request: Request) {
     );
   }
 
-  const importJob = await prisma.importJob.create({
-    data: {
+  const jobId = nanoid();
+
+  const [newJob] = await db
+    .insert(importJob)
+    .values({
+      id: jobId,
       filename: file.name,
       sourceType: parsed.sourceType,
       status: "parsing",
@@ -54,13 +62,13 @@ export async function POST(request: Request) {
       validRows: 0,
       invalidRows: 0,
       duplicateRows: 0,
-    },
-  });
+    })
+    .returning();
 
   try {
-    const existingKeys = await prisma.normalizedRecord.findMany({
-      select: { dedupeKey: true },
-    });
+    const existingKeys = await db
+      .select({ dedupeKey: normalizedRecord.dedupeKey })
+      .from(normalizedRecord);
     const dedupeSet = new Set(existingKeys.map((row) => row.dedupeKey));
 
     let validRows = 0;
@@ -69,14 +77,14 @@ export async function POST(request: Request) {
 
     for (let i = 0; i < parsed.rows.length; i += 1) {
       const rowIndex = i + 1;
-      const rawRow = parsed.rows[i];
-      const mapped = mapFieldVariants(rawRow);
+      const rawRowData = parsed.rows[i];
+      const mapped = mapFieldVariants(rawRowData);
       const normalized = normalizeRow(mapped);
       const validation = validateRow(rowIndex, mapped, normalized);
 
       let status: string = validation.status === "invalid" ? "invalid" : "valid";
 
-      const dedupeKey = computeDedupeKey(normalized, `${importJob.id}-${rowIndex}`);
+      const dedupeKey = computeDedupeKey(normalized, `${jobId}-${rowIndex}`);
       if (status === "valid") {
         if (dedupeSet.has(dedupeKey)) {
           status = "duplicate";
@@ -89,78 +97,77 @@ export async function POST(request: Request) {
       if (status === "invalid") invalidRows += 1;
       if (status === "duplicate") duplicateRows += 1;
 
-      const rawRecord = await prisma.rawRow.create({
-        data: {
-          importJobId: importJob.id,
-          rowIndex,
-          rawData: JSON.stringify(rawRow),
-          status,
-          errorSummary:
-            status === "invalid"
-              ? validation.errors.map((err) => err.message).join(" | ")
-              : status === "duplicate"
-              ? "Duplicate detected"
-              : null,
-        },
+      const rawRowId = nanoid();
+      await db.insert(rawRow).values({
+        id: rawRowId,
+        importJobId: jobId,
+        rowIndex,
+        rawData: JSON.stringify(rawRowData),
+        status,
+        errorSummary:
+          status === "invalid"
+            ? validation.errors.map((err) => err.message).join(" | ")
+            : status === "duplicate"
+            ? "Duplicate detected"
+            : null,
       });
 
       if (validation.errors.length > 0) {
         for (const err of validation.errors) {
-          await prisma.validationError.create({
-            data: {
-              importJobId: importJob.id,
-              rawRowId: rawRecord.id,
-              rowIndex,
-              field: err.field,
-              message: err.message,
-              severity: err.severity,
-            },
+          await db.insert(validationError).values({
+            id: nanoid(),
+            importJobId: jobId,
+            rawRowId,
+            rowIndex,
+            field: err.field,
+            message: err.message,
+            severity: err.severity,
           });
         }
       }
 
       if (status === "valid") {
-        await prisma.normalizedRecord.create({
-          data: {
-            importJobId: importJob.id,
-            externalId: normalized.externalId ?? null,
-            name: normalized.name ?? null,
-            email: normalized.email ?? null,
-            company: normalized.company ?? null,
-            category: normalized.category ?? null,
-            amount: normalized.amount ?? null,
-            status: normalized.status ?? null,
-            dedupeKey,
-            sourceRowIndex: rowIndex,
-          },
+        await db.insert(normalizedRecord).values({
+          id: nanoid(),
+          importJobId: jobId,
+          externalId: normalized.externalId ?? null,
+          name: normalized.name ?? null,
+          email: normalized.email ?? null,
+          company: normalized.company ?? null,
+          category: normalized.category ?? null,
+          amount: normalized.amount ?? null,
+          status: normalized.status ?? null,
+          dedupeKey,
+          sourceRowIndex: rowIndex,
         });
       }
     }
 
-    const updated = await prisma.importJob.update({
-      where: { id: importJob.id },
-      data: {
+    const [updated] = await db
+      .update(importJob)
+      .set({
         status: "imported",
         validRows,
         invalidRows,
         duplicateRows,
         completedAt: new Date(),
-      },
-    });
+      })
+      .where(eq(importJob.id, jobId))
+      .returning();
 
     return Response.json({
       import: updated,
       warnings: parsed.warnings ?? [],
     });
   } catch (error) {
-    await prisma.importJob.update({
-      where: { id: importJob.id },
-      data: {
+    await db
+      .update(importJob)
+      .set({
         status: "failed",
         errorMessage: error instanceof Error ? error.message : "Import failed.",
         completedAt: new Date(),
-      },
-    });
+      })
+      .where(eq(importJob.id, jobId));
 
     return Response.json(
       { error: "Import failed while processing rows." },

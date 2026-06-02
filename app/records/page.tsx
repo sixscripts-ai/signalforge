@@ -1,0 +1,124 @@
+import SectionHeader from "@/components/SectionHeader";
+import RecordsTable from "@/components/RecordsTable";
+import EmptyState from "@/components/EmptyState";
+import { db } from "@/lib/db";
+import { normalizedRecord, importJob } from "@/lib/db/schema";
+import { eq, desc, ilike, or, and, sql } from "drizzle-orm";
+import { formatNumber } from "@/lib/format";
+
+export const dynamic = "force-dynamic";
+
+export default async function RecordsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; category?: string }>;
+}) {
+  const { q, category } = await searchParams;
+
+  const conditions = [];
+  if (category) conditions.push(eq(normalizedRecord.category, category));
+  if (q) {
+    conditions.push(
+      or(
+        ilike(normalizedRecord.name, `%${q}%`),
+        ilike(normalizedRecord.email, `%${q}%`),
+        ilike(normalizedRecord.company, `%${q}%`),
+        ilike(normalizedRecord.externalId, `%${q}%`)
+      )
+    );
+  }
+  const whereClause = conditions.length > 0 ? (conditions.length === 1 ? conditions[0] : and(...conditions)) : undefined;
+
+  const [recordsRaw, categories] = await Promise.all([
+    db
+      .select({
+        record: normalizedRecord,
+        job: importJob,
+      })
+      .from(normalizedRecord)
+      .leftJoin(importJob, eq(normalizedRecord.importJobId, importJob.id))
+      .where(whereClause)
+      .orderBy(desc(normalizedRecord.createdAt))
+      .limit(200),
+    db
+      .select({
+        category: normalizedRecord.category,
+        count: sql<number>`cast(count(${normalizedRecord.category}) as int)`,
+      })
+      .from(normalizedRecord)
+      .groupBy(normalizedRecord.category),
+  ]);
+
+  const records = recordsRaw.map((r) => ({
+    ...r.record,
+    importJob: r.job!,
+  }));
+
+  const mappedCategories = categories.map(c => ({
+    category: c.category,
+    _count: { category: c.count }
+  }));
+
+  return (
+    <div className="space-y-8">
+      <SectionHeader
+        title="Records"
+        description={`${formatNumber(
+          records.length
+        )} normalized records across all imports.`}
+      />
+
+      <form
+        className="flex flex-wrap items-end gap-3 rounded-xl border border-[var(--border)] bg-[var(--panel-soft)] p-4"
+        action="/records"
+      >
+        <div className="flex flex-col gap-1">
+          <label className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
+            Search
+          </label>
+          <input
+            type="text"
+            name="q"
+            defaultValue={q ?? ""}
+            placeholder="Name, email, company, ID"
+            className="w-64 rounded-lg border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--text)] outline-none placeholder:text-[var(--muted)] focus:border-[var(--accent-border)]"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
+            Category
+          </label>
+          <select
+            name="category"
+            defaultValue={category ?? ""}
+            className="w-48 rounded-lg border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--accent-border)]"
+          >
+            <option value="">All categories</option>
+            {mappedCategories
+              .filter((c) => c.category)
+              .map((c) => (
+                <option key={c.category} value={c.category ?? ""}>
+                  {c.category} ({c._count.category})
+                </option>
+              ))}
+          </select>
+        </div>
+        <button
+          type="submit"
+          className="rounded-lg border border-[var(--accent-border)] bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-[var(--accent-strong)]"
+        >
+          Apply
+        </button>
+      </form>
+
+      {records.length ? (
+        <RecordsTable records={records} />
+      ) : (
+        <EmptyState
+          title="No records found"
+          description="Try adjusting your search or import more data."
+        />
+      )}
+    </div>
+  );
+}
