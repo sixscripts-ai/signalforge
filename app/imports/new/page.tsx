@@ -84,7 +84,7 @@ export default function NewImportPage() {
         const mapped = mapFieldVariants(row);
         const normalized = normalizeRow(mapped);
         const validation = validateRow(rowIndex, mapped, normalized);
-        let status = validation.status;
+        let status: "valid" | "invalid" | "duplicate" = validation.status;
         const dedupeKey = computeDedupeKey(normalized, `preview-${rowIndex}`);
 
         if (status === "valid") {
