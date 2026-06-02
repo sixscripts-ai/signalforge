@@ -35,8 +35,9 @@ export const SchemaProfileDedupeStrategy = z.object({
 export const SchemaProfileConfigSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(1, "Profile name is required"),
-  requiredFields: z.array(z.string()).default(["name", "externalId"]),
+  requiredFields: z.array(z.string()).default([]),
   fieldMappings: z.record(z.string(), z.string()).default({
+    "first_name": "name",
     "e_mail": "email",
     "email_address": "email",
     "customer_name": "name",
@@ -65,7 +66,7 @@ export const SchemaProfileConfigSchema = z.object({
   }),
   dedupeStrategy: SchemaProfileDedupeStrategy.default({
     enabled: true,
-    fields: ["email", "externalId"],
+    fields: ["email", "name+company"],
     action: "skip"
   }),
 });
