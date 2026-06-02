@@ -167,7 +167,7 @@ export default async function ImportDetailPage({
           Audit Trail
         </h2>
         {mappedRows.length ? (
-          <RowReviewTable rows={mappedRows} />
+          <RowReviewTable rows={mappedRows} importJobId={id} />
         ) : (
           <EmptyState
             title="No stored rows"

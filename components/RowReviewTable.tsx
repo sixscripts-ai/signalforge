@@ -3,7 +3,6 @@
 import { useState } from "react";
 import type { ProcessedRow } from "@/lib/pipeline";
 import RowDiff from "./RowDiff";
-import { generateRejectedCsv } from "@/lib/export-rejected";
 
 type StatusFilter = "all" | "valid" | "auto_fixed" | "needs_review" | "rejected" | "duplicate";
 
@@ -34,26 +33,45 @@ const statusLabels: Record<ProcessedRow["status"], string> = {
 
 type RowReviewTableProps = {
   rows: ProcessedRow[];
+  importJobId?: string;
 };
 
-export default function RowReviewTable({ rows }: RowReviewTableProps) {
+export default function RowReviewTable({ rows, importJobId }: RowReviewTableProps) {
   const [activeFilter, setActiveFilter] = useState<StatusFilter>("all");
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const filtered = activeFilter === "all"
     ? rows
     : rows.filter((r) => r.status === activeFilter);
 
-  const handleDownloadRejected = () => {
-    const csv = generateRejectedCsv(rows);
-    if (!csv) return;
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "rejected-rows.csv";
-    a.click();
-    URL.revokeObjectURL(url);
+  const handleDownloadRejected = async () => {
+    setIsDownloading(true);
+    try {
+      const res = await fetch("/api/exports/rejected", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows, importJobId }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Export failed." }));
+        console.error("Rejected-row export error:", err.error);
+        return;
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "rejected-rows.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Rejected-row export error:", error);
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   const rejectedCount = rows.filter((r) => r.status === "rejected").length;
@@ -82,9 +100,10 @@ export default function RowReviewTable({ rows }: RowReviewTableProps) {
         {rejectedCount > 0 && (
           <button
             onClick={handleDownloadRejected}
-            className="ml-auto rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-xs text-rose-300 transition hover:bg-rose-500/20"
+            disabled={isDownloading}
+            className="ml-auto rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-xs text-rose-300 transition hover:bg-rose-500/20 disabled:opacity-50"
           >
-            ↓ Download Rejected CSV
+            {isDownloading ? "Downloading..." : "↓ Download Rejected CSV"}
           </button>
         )}
       </div>
