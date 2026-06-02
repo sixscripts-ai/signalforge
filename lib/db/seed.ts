@@ -7,6 +7,8 @@ import {
   workspace,
   workspaceMember,
   workspaceInvitation,
+  importTemplate,
+  auditLog,
 } from "./schema";
 import {
   sampleCategories,
@@ -18,14 +20,14 @@ import {
 import { processRows } from "../pipeline";
 import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
-import { DEFAULT_SCHEMA_PROFILE } from "../schema-profile";
-import { auditLog } from "./schema";
+import { DEFAULT_SCHEMA_PROFILE, SchemaProfileConfigSchema } from "../schema-profile";
 
 async function main() {
   console.log("Cleaning database...");
   await db.delete(normalizedRecord);
   await db.delete(importRow);
   await db.delete(importJob);
+  await db.delete(importTemplate);
   await db.delete(schemaProfile);
   await db.delete(workspaceInvitation);
   await db.delete(workspaceMember);
@@ -89,6 +91,57 @@ async function main() {
     dedupeStrategy: profile.dedupeStrategy,
     createdAt: new Date(),
     updatedAt: new Date(),
+  });
+
+  console.log("Seeding import templates...");
+  const parsedProfile = SchemaProfileConfigSchema.parse(profile);
+  const templateSeedDate = new Date();
+
+  const crmTemplateId = nanoid();
+  await db.insert(importTemplate).values({
+    id: crmTemplateId,
+    workspaceId,
+    name: "Default CRM Upload",
+    description: "Standard import template for CSV exports from CRM platforms.",
+    schemaProfileId: profileId,
+    config: parsedProfile,
+    sampleHeaders: ["first_name", "e-mail", "company_name", "value", "type", "status"],
+    isDefault: "true",
+    createdByUserId: dummyUserId,
+    createdAt: templateSeedDate,
+    updatedAt: templateSeedDate,
+  });
+
+  const hubspotTemplateId = nanoid();
+  await db.insert(importTemplate).values({
+    id: hubspotTemplateId,
+    workspaceId,
+    name: "HubSpot Export",
+    description: "Configured for HubSpot contacts exports with standard HubSpot column names.",
+    schemaProfileId: profileId,
+    config: {
+      ...parsedProfile,
+      fieldMappings: {
+        ...parsedProfile.fieldMappings,
+        "First Name": "name",
+        "Last Name": "name",
+        "Email": "email",
+        "Company": "company",
+        "Phone": "externalId",
+        "Deal Amount": "amount",
+        "Lifecycle Stage": "status",
+        "Industry": "category",
+      },
+      dedupeStrategy: {
+        ...parsedProfile.dedupeStrategy,
+        fields: ["email"],
+      },
+    },
+    sampleHeaders: ["First Name", "Last Name", "Email", "Company", "Phone", "Deal Amount", "Lifecycle Stage", "Industry"],
+    isDefault: "false",
+    createdByUserId: dummyUserId,
+    createdAt: templateSeedDate,
+    updatedAt: templateSeedDate,
   });
 
   const baseDate = new Date();
@@ -275,6 +328,30 @@ async function main() {
       summary: "Invited newhire@example.com as member",
       metadata: { email: "newhire@example.com", role: "member" },
       createdAt: hoursAgo(1),
+    },
+    {
+      id: nanoid(),
+      workspaceId,
+      actorUserId: dummyUserId,
+      actorEmail: "demo@signalforge.dev",
+      action: "import_template.created",
+      entityType: "import_template",
+      entityId: crmTemplateId,
+      summary: 'Created import template "Default CRM Upload"',
+      metadata: { templateName: "Default CRM Upload" },
+      createdAt: hoursAgo(46),
+    },
+    {
+      id: nanoid(),
+      workspaceId,
+      actorUserId: dummyUserId,
+      actorEmail: "demo@signalforge.dev",
+      action: "import_template.created",
+      entityType: "import_template",
+      entityId: hubspotTemplateId,
+      summary: 'Created import template "HubSpot Export"',
+      metadata: { templateName: "HubSpot Export" },
+      createdAt: hoursAgo(45),
     },
   ]);
 

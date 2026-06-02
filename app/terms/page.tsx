@@ -34,7 +34,7 @@ export default function TermsPage() {
 
         <h3 className="text-[var(--text)] text-lg font-semibold mt-6 mb-2">5. Disclaimer</h3>
         <p>
-          The service is provided on an "AS IS" and "AS AVAILABLE" basis. We disclaim all warranties, whether express or implied, including the implied warranties of merchantability, fitness for a particular purpose, and non-infringement.
+          The service is provided on an &ldquo;AS IS&rdquo; and &ldquo;AS AVAILABLE&rdquo; basis. We disclaim all warranties, whether express or implied, including the implied warranties of merchantability, fitness for a particular purpose, and non-infringement.
         </p>
 
         <p className="mt-8 pt-8 border-t border-[var(--border)] text-sm">

@@ -80,6 +80,9 @@ export const importJob = pgTable(
     completedAt: timestamp("completed_at", { withTimezone: true }),
     errorMessage: text("error_message"),
     schemaProfileSnapshot: jsonb("schema_profile_snapshot"),
+    importTemplateId: text("import_template_id")
+      .references(() => importTemplate.id, { onDelete: "set null" }),
+    importTemplateSnapshot: jsonb("import_template_snapshot"),
   },
   (table) => [
     index("idx_import_job_workspace_id").on(table.workspaceId),
@@ -202,6 +205,32 @@ export const apiKey = pgTable(
   ]
 );
 
+// --- Import Template Table ---
+
+export const importTemplate = pgTable(
+  "import_template",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    schemaProfileId: text("schema_profile_id")
+      .references(() => schemaProfile.id, { onDelete: "set null" }),
+    config: jsonb("config").notNull(),
+    sampleHeaders: jsonb("sample_headers"),
+    isDefault: text("is_default").notNull().default("false"),
+    createdByUserId: text("created_by_user_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_import_template_workspace_id").on(table.workspaceId),
+    index("idx_import_template_is_default").on(table.workspaceId, table.isDefault),
+  ]
+);
+
 // --- Audit Log Table ---
 
 export const auditLog = pgTable(
@@ -251,3 +280,6 @@ export type NewWebhook = typeof webhook.$inferInsert;
 
 export type ApiKey = typeof apiKey.$inferSelect;
 export type NewApiKey = typeof apiKey.$inferInsert;
+
+export type ImportTemplateRecord = typeof importTemplate.$inferSelect;
+export type NewImportTemplateRecord = typeof importTemplate.$inferInsert;

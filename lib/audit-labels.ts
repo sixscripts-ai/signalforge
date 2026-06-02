@@ -16,6 +16,11 @@ const actionLabels: Record<string, string> = {
   "member.removed": "Member Removed",
   "member.role_changed": "Member Role Changed",
   "invitation.revoked": "Invitation Revoked",
+  "import_template.created": "Import Template Created",
+  "import_template.updated": "Import Template Updated",
+  "import_template.deleted": "Import Template Deleted",
+  "import_template.default_changed": "Default Template Changed",
+  "ai.repair_applied": "AI Repair Applied",
 };
 
 export function getAuditActionLabel(action: string): string {

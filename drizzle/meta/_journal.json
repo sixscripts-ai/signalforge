@@ -15,6 +15,13 @@
       "when": 1780384351815,
       "tag": "0001_chunky_mister_sinister",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780385180771,
+      "tag": "0002_romantic_magus",
+      "breakpoints": true
     }
   ]
 }

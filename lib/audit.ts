@@ -18,7 +18,12 @@ export type AuditAction =
   | "member.joined"
   | "member.removed"
   | "member.role_changed"
-  | "invitation.revoked";
+  | "invitation.revoked"
+  | "import_template.created"
+  | "import_template.updated"
+  | "import_template.deleted"
+  | "import_template.default_changed"
+  | "ai.repair_applied";
 
 export type EntityType =
   | "workspace"
@@ -27,7 +32,9 @@ export type EntityType =
   | "record"
   | "member"
   | "invitation"
-  | "export";
+  | "export"
+  | "import_template"
+  | "ai";
 
 // ── Write Helper ────────────────────────────────────────────────
 

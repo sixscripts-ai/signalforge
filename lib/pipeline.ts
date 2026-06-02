@@ -8,7 +8,7 @@ import type { SchemaProfileConfig } from "./schema-profile";
 
 export type ProcessedRow = {
   rowIndex: number;
-  status: "valid" | "auto_fixed" | "needs_review" | "rejected" | "duplicate";
+  status: "valid" | "auto_fixed" | "needs_review" | "rejected" | "duplicate" | "ai_repaired";
   original: Record<string, unknown>;
   cleaned: Record<string, unknown>;
   issues: RowIssue[];

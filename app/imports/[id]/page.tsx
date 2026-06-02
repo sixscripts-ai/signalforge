@@ -72,6 +72,13 @@ export default async function ImportDetailPage({
     records: records,
   };
 
+  // Extract template snapshot if present
+  const templateSnapshot = importJob.importTemplateSnapshot as {
+    templateId: string;
+    templateName: string;
+    config: Record<string, unknown>;
+  } | null;
+
   let profileName = "Unknown Profile";
   if (importJob.schemaProfileSnapshot) {
     const res = SchemaProfileConfigSchema.safeParse(importJob.schemaProfileSnapshot);
@@ -95,7 +102,7 @@ export default async function ImportDetailPage({
         title={importJob.filename}
         description={`${importJob.sourceType.toUpperCase()} · ${profileName} · imported ${formatDateTime(
           importJob.createdAt
-        )}`}
+        )}${templateSnapshot ? ` · Template: ${templateSnapshot.templateName}` : ""}`}
         action={
           <Link
             href="/imports"

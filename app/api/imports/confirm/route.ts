@@ -1,17 +1,20 @@
 import { db } from "@/lib/db";
-import { importJob, importRow, normalizedRecord, schemaProfile } from "@/lib/db/schema";
+import { importJob, importRow, normalizedRecord } from "@/lib/db/schema";
 import { nanoid } from "nanoid";
-import { eq, desc } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { processRows } from "@/lib/pipeline";
-import { DEFAULT_SCHEMA_PROFILE, SchemaProfileConfigSchema } from "@/lib/schema-profile";
 import { requireWorkspace, getCurrentUser } from "@/lib/auth";
 import { currentUser } from "@clerk/nextjs/server";
 import { createAuditLog } from "@/lib/audit";
+import { resolveImportConfig } from "@/lib/import-templates";
 
 type ConfirmPayload = {
   filename: string;
   sourceType: string;
   originalRows: Record<string, unknown>[];
+  templateId?: string;
+  /** AI repair patches: rowIndex → { field → suggestedValue } */
+  rowPatches?: Record<number, Record<string, unknown>>;
 };
 
 export async function POST(request: Request) {
@@ -22,7 +25,7 @@ export async function POST(request: Request) {
     return Response.json({ error: { code: "INVALID_JSON", message: "Invalid JSON body." } }, { status: 400 });
   }
 
-  const { filename, sourceType, originalRows } = payload;
+  const { filename, sourceType, originalRows, templateId, rowPatches } = payload;
 
   if (!filename || !sourceType || !Array.isArray(originalRows) || originalRows.length === 0) {
     return Response.json(
@@ -31,17 +34,14 @@ export async function POST(request: Request) {
     );
   }
 
-  let profileRecord;
   let ws;
+  let resolved;
   try {
     ws = await requireWorkspace();
-    profileRecord = await db
-      .select()
-      .from(schemaProfile)
-      .where(eq(schemaProfile.workspaceId, ws.id))
-      .orderBy(desc(schemaProfile.createdAt))
-      .limit(1)
-      .then((res) => res[0] || null);
+    resolved = await resolveImportConfig({
+      workspaceId: ws.id,
+      templateId: templateId || undefined,
+    });
   } catch (err) {
     console.error(err);
     return Response.json(
@@ -50,13 +50,63 @@ export async function POST(request: Request) {
     );
   }
 
-  const profile = profileRecord
-    ? SchemaProfileConfigSchema.parse(profileRecord)
-    : DEFAULT_SCHEMA_PROFILE;
+  const { config: profile, templateSnapshot } = resolved;
 
   // HARDENING: Re-run the entire pipeline server-side to prevent client manipulation
-  // We use the active schema profile from the DB to ensure consistency
-  const { rows, summary } = processRows(originalRows, undefined, profile);
+  // If a template was selected, the server re-loads it and uses its stored config
+  let { rows, summary } = processRows(originalRows, undefined, profile);
+
+  // Apply AI repair patches: override cleaned data for patched rows
+  // and promote their status to auto_fixed (since they were reviewed by AI)
+  if (rowPatches && typeof rowPatches === "object") {
+    rows = rows.map((row) => {
+      const patch = rowPatches[String(row.rowIndex) as unknown as number] ?? rowPatches[row.rowIndex];
+      if (!patch || Object.keys(patch).length === 0) return row;
+
+      const cleaned = { ...row.cleaned };
+      let patched = false;
+      for (const [field, value] of Object.entries(patch)) {
+        if (cleaned[field] !== value) {
+          cleaned[field] = value;
+          patched = true;
+        }
+      }
+
+      if (!patched) return row;
+
+      // Promote from needs_review to auto_fixed when AI-repaired
+      const newStatus = row.status === "needs_review" ? "auto_fixed" : row.status;
+
+      return {
+        ...row,
+        status: newStatus,
+        cleaned,
+        issues: [
+          ...row.issues,
+          {
+            field: "multiple",
+            severity: "fixed" as const,
+            message: "AI-assisted repair applied during confirmation",
+          },
+        ],
+      };
+    });
+
+    // Recalculate summary after patches
+    summary = rows.reduce(
+      (acc, row) => {
+        acc.total++;
+        if (row.status === "valid") acc.valid++;
+        else if (row.status === "auto_fixed") acc.autoFixed++;
+        else if (row.status === "needs_review") acc.needsReview++;
+        else if (row.status === "rejected") acc.rejected++;
+        else if (row.status === "duplicate") acc.duplicate++;
+        acc.importable = acc.valid + acc.autoFixed;
+        return acc;
+      },
+      { total: 0, valid: 0, autoFixed: 0, needsReview: 0, rejected: 0, duplicate: 0, importable: 0 }
+    );
+  }
 
   const jobId = nanoid();
 
@@ -73,6 +123,8 @@ export async function POST(request: Request) {
     duplicateRows: 0,
     rejectedRows: 0,
     schemaProfileSnapshot: profile,
+    importTemplateId: templateSnapshot?.templateId ?? null,
+    importTemplateSnapshot: templateSnapshot ?? null,
   });
 
   try {
@@ -142,7 +194,9 @@ export async function POST(request: Request) {
       action: "import.confirmed",
       entityType: "import",
       entityId: jobId,
-      summary: `Confirmed import "${filename}" — ${summary.valid} valid, ${summary.autoFixed} auto-fixed, ${summary.rejected} rejected, ${summary.duplicate} duplicate`,
+      summary: `Confirmed import "${filename}" — ${summary.valid} valid, ${summary.autoFixed} auto-fixed, ${summary.rejected} rejected, ${summary.duplicate} duplicate${
+        templateSnapshot ? ` using template "${templateSnapshot.templateName}"` : ""
+      }`,
       metadata: {
         filename,
         totalRows: summary.total,
@@ -150,6 +204,8 @@ export async function POST(request: Request) {
         autoFixedRows: summary.autoFixed,
         rejectedRows: summary.rejected,
         duplicateRows: summary.duplicate,
+        templateName: templateSnapshot?.templateName ?? null,
+        templateId: templateSnapshot?.templateId ?? null,
       },
     });
 
@@ -175,7 +231,11 @@ export async function POST(request: Request) {
       entityType: "import",
       entityId: jobId,
       summary: `Import "${filename}" failed — ${error instanceof Error ? error.message : "Unknown error"}`,
-      metadata: { filename, sourceType },
+      metadata: {
+        filename,
+        sourceType,
+        templateName: templateSnapshot?.templateName ?? null,
+      },
     });
 
     return Response.json(

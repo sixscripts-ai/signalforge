@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import SectionHeader from "@/components/SectionHeader";
 import UploadDropzone from "@/components/UploadDropzone";
@@ -10,6 +10,7 @@ import StepIndicator from "@/components/StepIndicator";
 import { MAX_ROW_COUNT, MAX_UPLOAD_BYTES } from "@/lib/constants";
 import type { ProcessedRow } from "@/lib/pipeline";
 import type { ImportSummary } from "@/lib/pipeline";
+import type { SchemaProfileConfig } from "@/lib/schema-profile";
 
 const ACCEPTED_TYPES = [".csv", ".json"].join(",");
 
@@ -17,9 +18,18 @@ type PreviewState = {
   filename: string;
   sourceType: string;
   schemaProfileName: string;
+  profileSnapshot: SchemaProfileConfig;
+  templateName: string | null;
   rows: ProcessedRow[];
   summary: ImportSummary;
   warnings: string[];
+};
+
+type TemplateOption = {
+  id: string;
+  name: string;
+  description: string | null;
+  isDefault: string;
 };
 
 export default function NewImportPage() {
@@ -28,6 +38,33 @@ export default function NewImportPage() {
   const [error, setError] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [importId, setImportId] = useState<string | null>(null);
+
+  // Template state
+  const [templates, setTemplates] = useState<TemplateOption[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
+  const [templatesLoading, setTemplatesLoading] = useState(true);
+
+  // Fetch available templates on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/import-templates");
+        if (res.ok) {
+          const data: TemplateOption[] = await res.json();
+          setTemplates(data);
+          // Auto-select the default template if one exists
+          const defaultTmpl = data.find((t) => t.isDefault === "true");
+          if (defaultTmpl) {
+            setSelectedTemplateId(defaultTmpl.id);
+          }
+        }
+      } catch {
+        // Silently fail — templates are optional
+      } finally {
+        setTemplatesLoading(false);
+      }
+    })();
+  }, []);
 
   const currentStep = useMemo(() => {
     if (importId) return 3;
@@ -69,6 +106,9 @@ export default function NewImportPage() {
     try {
       const formData = new FormData();
       formData.append("file", file);
+      if (selectedTemplateId) {
+        formData.append("templateId", selectedTemplateId);
+      }
 
       const res = await fetch("/api/imports/preview", {
         method: "POST",
@@ -84,6 +124,8 @@ export default function NewImportPage() {
         filename: payload.filename,
         sourceType: payload.sourceType,
         schemaProfileName: payload.schemaProfileName,
+        profileSnapshot: payload.profileSnapshot,
+        templateName: payload.templateName ?? null,
         rows: payload.rows,
         summary: payload.summary,
         warnings: payload.warnings,
@@ -100,6 +142,19 @@ export default function NewImportPage() {
     setIsImporting(true);
     setError(null);
 
+    // Build AI repair patches: rowIndex → { field → suggestedValue }
+    const rowPatches: Record<number, Record<string, unknown>> = {};
+    for (const row of preview.rows) {
+      if (row.status === "ai_repaired") {
+        for (const issue of row.issues) {
+          if (issue.severity === "fixed" && issue.message.startsWith("AI repair:")) {
+            if (!rowPatches[row.rowIndex]) rowPatches[row.rowIndex] = {};
+            rowPatches[row.rowIndex][issue.field] = issue.cleanedValue;
+          }
+        }
+      }
+    }
+
     try {
       const res = await fetch("/api/imports/confirm", {
         method: "POST",
@@ -108,6 +163,8 @@ export default function NewImportPage() {
           filename: preview.filename,
           sourceType: preview.sourceType,
           originalRows: preview.rows.map((r) => r.original),
+          templateId: selectedTemplateId || undefined,
+          rowPatches: Object.keys(rowPatches).length > 0 ? rowPatches : undefined,
         }),
       });
 
@@ -123,6 +180,39 @@ export default function NewImportPage() {
       setIsImporting(false);
     }
   };
+
+  // ── AI Repair: handle row updates from AI suggestions ──────
+  const handleRowsChange = useCallback((updatedRows: ProcessedRow[]) => {
+    setPreview((prev) => {
+      if (!prev) return prev;
+      // Recalculate summary based on updated row statuses
+      const total = updatedRows.length;
+      let valid = 0, autoFixed = 0, aiRepaired = 0, needsReview = 0, rejected = 0, duplicate = 0;
+      for (const row of updatedRows) {
+        if (row.status === "valid") valid++;
+        else if (row.status === "auto_fixed") autoFixed++;
+        else if (row.status === "ai_repaired") aiRepaired++;
+        else if (row.status === "needs_review") needsReview++;
+        else if (row.status === "rejected") rejected++;
+        else if (row.status === "duplicate") duplicate++;
+      }
+      return {
+        ...prev,
+        rows: updatedRows,
+        summary: {
+          total,
+          valid,
+          autoFixed,
+          needsReview,
+          rejected,
+          duplicate,
+          importable: valid + autoFixed + aiRepaired,
+        },
+      };
+    });
+  }, []);
+
+  const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
 
   return (
     <div className="space-y-8">
@@ -145,6 +235,28 @@ export default function NewImportPage() {
       />
 
       <StepIndicator steps={steps} />
+
+      {/* Template Selector — only before preview begins */}
+      {!importId && !isUploading && !preview && !templatesLoading && templates.length > 0 && (
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--panel-soft)] p-4">
+          <label className="block text-xs text-[var(--muted)] mb-1">Import Template (optional)</label>
+          <select
+            value={selectedTemplateId}
+            onChange={(e) => setSelectedTemplateId(e.target.value)}
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--accent-border)]"
+          >
+            <option value="">— No template —</option>
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}{t.isDefault === "true" ? " (Default)" : ""}
+              </option>
+            ))}
+          </select>
+          {selectedTemplate?.description && (
+            <p className="mt-1 text-[11px] text-[var(--muted)]">{selectedTemplate.description}</p>
+          )}
+        </div>
+      )}
 
       {/* Upload Phase */}
       {!importId && (
@@ -178,6 +290,12 @@ export default function NewImportPage() {
           <div className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--panel-soft)] px-4 py-3">
             <span className="text-sm font-medium text-[var(--text)]">Using schema profile:</span>
             <span className="text-sm text-[var(--accent)]">{preview.schemaProfileName}</span>
+            {preview.templateName && (
+              <>
+                <span className="text-xs text-[var(--muted)]">·</span>
+                <span className="text-xs text-[var(--muted)]">Template: {preview.templateName}</span>
+              </>
+            )}
           </div>
 
           <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
@@ -190,7 +308,11 @@ export default function NewImportPage() {
                   {preview.filename}
                 </span>
               </div>
-              <RowReviewTable rows={preview.rows} />
+              <RowReviewTable
+                rows={preview.rows}
+                onRowsChange={handleRowsChange}
+                profileSnapshot={preview.profileSnapshot}
+              />
             </div>
             <div>
               <PreviewSummary

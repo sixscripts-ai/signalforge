@@ -1,13 +1,10 @@
 import { parseImportFile } from "@/lib/parser";
 import { processRows } from "@/lib/pipeline";
 import { MAX_ROW_COUNT, MAX_UPLOAD_BYTES } from "@/lib/constants";
-import { db } from "@/lib/db";
-import { schemaProfile } from "@/lib/db/schema";
-import { desc, eq } from "drizzle-orm";
-import { DEFAULT_SCHEMA_PROFILE, SchemaProfileConfigSchema } from "@/lib/schema-profile";
 import { requireWorkspace, getCurrentUser } from "@/lib/auth";
 import { currentUser } from "@clerk/nextjs/server";
 import { createAuditLog } from "@/lib/audit";
+import { resolveImportConfig } from "@/lib/import-templates";
 
 export async function POST(request: Request) {
   const formData = await request.formData();
@@ -25,6 +22,7 @@ export async function POST(request: Request) {
   }
 
   const content = await file.text();
+  const templateId = (formData.get("templateId") as string) || null;
 
   let parsed;
   try {
@@ -42,16 +40,13 @@ export async function POST(request: Request) {
   }
 
   let ws;
-  let profileRecord;
+  let resolved;
   try {
     ws = await requireWorkspace();
-    profileRecord = await db
-      .select()
-      .from(schemaProfile)
-      .where(eq(schemaProfile.workspaceId, ws.id))
-      .orderBy(desc(schemaProfile.createdAt))
-      .limit(1)
-      .then((res) => res[0] || null);
+    resolved = await resolveImportConfig({
+      workspaceId: ws.id,
+      templateId: templateId || undefined,
+    });
   } catch (err) {
     console.error(err);
     return Response.json(
@@ -60,10 +55,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const profile = profileRecord
-    ? SchemaProfileConfigSchema.parse(profileRecord)
-    : DEFAULT_SCHEMA_PROFILE;
-
+  const { config: profile, templateSnapshot } = resolved;
   const { rows, summary } = processRows(parsed.rows, undefined, profile);
 
   // Audit: log preview (non-blocking)
@@ -76,7 +68,9 @@ export async function POST(request: Request) {
       actorEmail: user?.emailAddresses[0]?.emailAddress ?? undefined,
       action: "import.previewed",
       entityType: "import",
-      summary: `Previewed "${file.name}" — ${summary.total} rows (${summary.valid} valid, ${summary.rejected} rejected)`,
+      summary: `Previewed "${file.name}" — ${summary.total} rows (${summary.valid} valid, ${summary.rejected} rejected)${
+        templateSnapshot ? ` using template "${templateSnapshot.templateName}"` : ""
+      }`,
       metadata: {
         filename: file.name,
         totalRows: summary.total,
@@ -84,6 +78,8 @@ export async function POST(request: Request) {
         autoFixedRows: summary.autoFixed,
         rejectedRows: summary.rejected,
         duplicateRows: summary.duplicate,
+        templateName: templateSnapshot?.templateName ?? null,
+        templateId: templateSnapshot?.templateId ?? null,
       },
     });
   }
@@ -93,8 +89,10 @@ export async function POST(request: Request) {
     sourceType: parsed.sourceType,
     columns: parsed.columns,
     schemaProfileName: profile.name,
+    profileSnapshot: profile,
     rows,
     summary,
     warnings: parsed.warnings ?? [],
+    templateName: templateSnapshot?.templateName ?? null,
   });
 }

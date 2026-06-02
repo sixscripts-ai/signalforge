@@ -55,6 +55,22 @@ describe("Audit Log Utilities", () => {
       expect(getAuditActionLabel("invitation.revoked")).toBe("Invitation Revoked");
     });
 
+    it("returns label for import_template.created", () => {
+      expect(getAuditActionLabel("import_template.created")).toBe("Import Template Created");
+    });
+
+    it("returns label for import_template.updated", () => {
+      expect(getAuditActionLabel("import_template.updated")).toBe("Import Template Updated");
+    });
+
+    it("returns label for import_template.deleted", () => {
+      expect(getAuditActionLabel("import_template.deleted")).toBe("Import Template Deleted");
+    });
+
+    it("returns label for import_template.default_changed", () => {
+      expect(getAuditActionLabel("import_template.default_changed")).toBe("Default Template Changed");
+    });
+
     it("returns the raw action string for unknown actions", () => {
       expect(getAuditActionLabel("unknown.action")).toBe("unknown.action");
     });

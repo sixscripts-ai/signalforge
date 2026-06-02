@@ -1,5 +1,6 @@
 import SectionHeader from "@/components/SectionHeader";
 import SchemaProfileForm from "@/components/SchemaProfileForm";
+import ImportTemplateSettings from "@/components/ImportTemplateSettings";
 import { db } from "@/lib/db";
 import { schemaProfile, webhook, apiKey } from "@/lib/db/schema";
 import { desc, eq } from "drizzle-orm";
@@ -27,6 +28,13 @@ export default async function SettingsPage() {
   const activeProfile = profileRecord
     ? SchemaProfileConfigSchema.parse(profileRecord)
     : DEFAULT_SCHEMA_PROFILE;
+
+  // Fetch all profiles for the template settings form
+  const allProfiles = await db
+    .select({ id: schemaProfile.id, name: schemaProfile.name })
+    .from(schemaProfile)
+    .where(eq(schemaProfile.workspaceId, ws.id))
+    .orderBy(desc(schemaProfile.createdAt));
 
   const wsMember = await getWorkspaceMembership();
 
@@ -84,6 +92,10 @@ export default async function SettingsPage() {
 
       <div className="space-y-4">
         <SchemaProfileForm initialProfile={activeProfile} />
+      </div>
+
+      <div className="border-t border-[var(--border)] pt-8">
+        <ImportTemplateSettings profiles={allProfiles} />
       </div>
 
       {wsMember && (
