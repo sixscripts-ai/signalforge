@@ -5,7 +5,9 @@ import { db } from "@/lib/db";
 import { schemaProfile } from "@/lib/db/schema";
 import { desc, eq } from "drizzle-orm";
 import { DEFAULT_SCHEMA_PROFILE, SchemaProfileConfigSchema } from "@/lib/schema-profile";
-import { requireWorkspace } from "@/lib/auth";
+import { requireWorkspace, getCurrentUser } from "@/lib/auth";
+import { currentUser } from "@clerk/nextjs/server";
+import { createAuditLog } from "@/lib/audit";
 
 export async function POST(request: Request) {
   const formData = await request.formData();
@@ -39,9 +41,10 @@ export async function POST(request: Request) {
     );
   }
 
+  let ws;
   let profileRecord;
   try {
-    const ws = await requireWorkspace();
+    ws = await requireWorkspace();
     profileRecord = await db
       .select()
       .from(schemaProfile)
@@ -62,6 +65,28 @@ export async function POST(request: Request) {
     : DEFAULT_SCHEMA_PROFILE;
 
   const { rows, summary } = processRows(parsed.rows, undefined, profile);
+
+  // Audit: log preview (non-blocking)
+  const userId = await getCurrentUser();
+  const user = await currentUser();
+  if (ws) {
+    createAuditLog({
+      workspaceId: ws.id,
+      actorUserId: userId ?? "unknown",
+      actorEmail: user?.emailAddresses[0]?.emailAddress ?? undefined,
+      action: "import.previewed",
+      entityType: "import",
+      summary: `Previewed "${file.name}" — ${summary.total} rows (${summary.valid} valid, ${summary.rejected} rejected)`,
+      metadata: {
+        filename: file.name,
+        totalRows: summary.total,
+        validRows: summary.valid,
+        autoFixedRows: summary.autoFixed,
+        rejectedRows: summary.rejected,
+        duplicateRows: summary.duplicate,
+      },
+    });
+  }
 
   return Response.json({
     filename: file.name,

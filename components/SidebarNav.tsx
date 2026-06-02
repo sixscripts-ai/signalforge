@@ -11,6 +11,7 @@ const navItems = [
   { label: "Imports", href: "/imports" },
   { label: "New Import", href: "/imports/new" },
   { label: "Records", href: "/records" },
+  { label: "Activity", href: "/activity" },
   { label: "Analytics", href: "/analytics" },
   { label: "Settings", href: "/settings" },
 ];

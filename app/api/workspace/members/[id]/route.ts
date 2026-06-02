@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { workspaceMember } from "@/lib/db/schema";
-import { requireWorkspaceRole } from "@/lib/auth";
+import { requireWorkspaceRole, getCurrentUser } from "@/lib/auth";
+import { currentUser } from "@clerk/nextjs/server";
 import { eq, and } from "drizzle-orm";
+import { createAuditLog } from "@/lib/audit";
 
 export async function PATCH(
   request: NextRequest,
@@ -38,6 +40,19 @@ export async function PATCH(
       }
     }
 
+    // Fetch the old member record for audit diff
+    const oldMember = await db
+      .select()
+      .from(workspaceMember)
+      .where(
+        and(
+          eq(workspaceMember.id, id),
+          eq(workspaceMember.workspaceId, wsMember.workspaceId)
+        )
+      )
+      .limit(1)
+      .then((r) => r[0]);
+
     const [updated] = await db
       .update(workspaceMember)
       .set({ role })
@@ -52,6 +67,19 @@ export async function PATCH(
     if (!updated) {
       return NextResponse.json({ error: "Member not found" }, { status: 404 });
     }
+
+    const userId = await getCurrentUser();
+    const user = await currentUser();
+    createAuditLog({
+      workspaceId: wsMember.workspaceId,
+      actorUserId: userId ?? wsMember.userId,
+      actorEmail: user?.emailAddresses[0]?.emailAddress ?? undefined,
+      action: "member.role_changed",
+      entityType: "member",
+      entityId: id,
+      summary: `Changed member role from "${oldMember?.role}" to "${role}"`,
+      metadata: { memberId: id, oldRole: oldMember?.role, newRole: role },
+    });
 
     return NextResponse.json({ member: updated });
   } catch (error) {
@@ -113,6 +141,19 @@ export async function DELETE(
           eq(workspaceMember.workspaceId, wsMember.workspaceId)
         )
       );
+
+    const userId = await getCurrentUser();
+    const user = await currentUser();
+    createAuditLog({
+      workspaceId: wsMember.workspaceId,
+      actorUserId: userId ?? wsMember.userId,
+      actorEmail: user?.emailAddresses[0]?.emailAddress ?? undefined,
+      action: "member.removed",
+      entityType: "member",
+      entityId: id,
+      summary: `Removed member (role: ${target[0].role})`,
+      metadata: { memberId: id, role: target[0].role, userId: target[0].userId },
+    });
 
     return new NextResponse(null, { status: 204 });
   } catch (error) {

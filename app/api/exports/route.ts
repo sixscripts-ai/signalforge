@@ -1,7 +1,9 @@
 import { db } from "@/lib/db";
 import { importJob, importRow, normalizedRecord } from "@/lib/db/schema";
 import { eq, asc, desc, and } from "drizzle-orm";
-import { requireWorkspace } from "@/lib/auth";
+import { requireWorkspace, getCurrentUser } from "@/lib/auth";
+import { currentUser } from "@clerk/nextjs/server";
+import { createAuditLog } from "@/lib/audit";
 import {
   type ExportFormat,
   makeExportFilename,
@@ -106,6 +108,22 @@ export async function POST(request: Request) {
 
     const filename = makeExportFilename(baseFilename, format);
     const blob = formatExport(rows, format);
+
+    // Audit: log export
+    const auditUserId = await getCurrentUser();
+    const auditUser = await currentUser();
+    const exportSummary = scope === "records"
+      ? `Exported ${rows.length} records as ${format.toUpperCase()}`
+      : `Exported ${rows.length} rows as ${format.toUpperCase()}`;
+    createAuditLog({
+      workspaceId: ws.id,
+      actorUserId: auditUserId ?? "unknown",
+      actorEmail: auditUser?.emailAddresses[0]?.emailAddress ?? undefined,
+      action: "records.exported",
+      entityType: "export",
+      summary: exportSummary,
+      metadata: { scope, format, rowCount: rows.length, importJobId: importJobId ?? null },
+    });
 
     return new Response(blob, {
       headers: {

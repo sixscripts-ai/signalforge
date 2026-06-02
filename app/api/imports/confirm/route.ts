@@ -4,7 +4,9 @@ import { nanoid } from "nanoid";
 import { eq, desc } from "drizzle-orm";
 import { processRows } from "@/lib/pipeline";
 import { DEFAULT_SCHEMA_PROFILE, SchemaProfileConfigSchema } from "@/lib/schema-profile";
-import { requireWorkspace } from "@/lib/auth";
+import { requireWorkspace, getCurrentUser } from "@/lib/auth";
+import { currentUser } from "@clerk/nextjs/server";
+import { createAuditLog } from "@/lib/audit";
 
 type ConfirmPayload = {
   filename: string;
@@ -130,6 +132,27 @@ export async function POST(request: Request) {
       .where(eq(importJob.id, jobId))
       .returning();
 
+    // Audit: log import confirmed
+    const userId = await getCurrentUser();
+    const user = await currentUser();
+    createAuditLog({
+      workspaceId: ws.id,
+      actorUserId: userId ?? "unknown",
+      actorEmail: user?.emailAddresses[0]?.emailAddress ?? undefined,
+      action: "import.confirmed",
+      entityType: "import",
+      entityId: jobId,
+      summary: `Confirmed import "${filename}" — ${summary.valid} valid, ${summary.autoFixed} auto-fixed, ${summary.rejected} rejected, ${summary.duplicate} duplicate`,
+      metadata: {
+        filename,
+        totalRows: summary.total,
+        validRows: summary.valid,
+        autoFixedRows: summary.autoFixed,
+        rejectedRows: summary.rejected,
+        duplicateRows: summary.duplicate,
+      },
+    });
+
     return Response.json({ import: updated });
   } catch (error) {
     await db
@@ -140,6 +163,20 @@ export async function POST(request: Request) {
         completedAt: new Date(),
       })
       .where(eq(importJob.id, jobId));
+
+    // Audit: log import failure
+    const userId = await getCurrentUser();
+    const user = await currentUser();
+    createAuditLog({
+      workspaceId: ws.id,
+      actorUserId: userId ?? "unknown",
+      actorEmail: user?.emailAddresses[0]?.emailAddress ?? undefined,
+      action: "import.failed",
+      entityType: "import",
+      entityId: jobId,
+      summary: `Import "${filename}" failed — ${error instanceof Error ? error.message : "Unknown error"}`,
+      metadata: { filename, sourceType },
+    });
 
     return Response.json(
       { error: { code: "IMPORT_FAILED", message: "Import failed while persisting rows." } },

@@ -88,6 +88,18 @@ export async function POST(request: NextRequest) {
       })
       .where(eq(workspaceInvitation.id, invitation.id));
 
+    // Audit: log member joined
+    const { createAuditLog } = await import("@/lib/audit");
+    createAuditLog({
+      workspaceId: invitation.workspaceId,
+      actorUserId: userId,
+      actorEmail: emailAddress.emailAddress,
+      action: "member.joined",
+      entityType: "member",
+      summary: `${emailAddress.emailAddress} joined as ${invitation.role}`,
+      metadata: { email: emailAddress.emailAddress, role: invitation.role },
+    });
+
     // Return the workspace ID to the client so it can set the active workspace cookie
     return NextResponse.json({ workspaceId: invitation.workspaceId });
   } catch (error) {

@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { workspaceInvitation } from "@/lib/db/schema";
-import { requireWorkspaceRole } from "@/lib/auth";
+import { requireWorkspaceRole, getCurrentUser } from "@/lib/auth";
+import { currentUser } from "@clerk/nextjs/server";
 import { eq, desc } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { createAuditLog } from "@/lib/audit";
 
 export async function GET() {
   try {
@@ -50,6 +52,19 @@ export async function POST(request: NextRequest) {
         expiresAt,
       })
       .returning();
+
+    const userId = await getCurrentUser();
+    const user = await currentUser();
+    createAuditLog({
+      workspaceId: wsMember.workspaceId,
+      actorUserId: userId ?? wsMember.userId,
+      actorEmail: user?.emailAddresses[0]?.emailAddress ?? undefined,
+      action: "member.invited",
+      entityType: "invitation",
+      entityId: invitation.id,
+      summary: `Invited ${email} as ${role}`,
+      metadata: { email, role },
+    });
 
     return NextResponse.json({ invitation });
   } catch (error) {

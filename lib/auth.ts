@@ -1,9 +1,10 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { db } from "./db";
 import { workspace, workspaceMember } from "./db/schema";
 import { eq, and, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { cookies } from "next/headers";
+import { createAuditLog } from "./audit";
 
 export async function getCurrentUser() {
   const { userId } = await auth();
@@ -80,6 +81,18 @@ export async function requireWorkspace() {
     workspaceId: newWorkspaceId,
     userId,
     role: "owner",
+  });
+
+  // Audit: log workspace creation (non-blocking)
+  const user = await currentUser();
+  createAuditLog({
+    workspaceId: newWorkspaceId,
+    actorUserId: userId,
+    actorEmail: user?.emailAddresses[0]?.emailAddress ?? undefined,
+    action: "workspace.created",
+    entityType: "workspace",
+    entityId: newWorkspaceId,
+    summary: `Workspace "${newWorkspace.name}" created`,
   });
 
   return newWorkspace;

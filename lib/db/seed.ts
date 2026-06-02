@@ -19,6 +19,7 @@ import { processRows } from "../pipeline";
 import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
 import { DEFAULT_SCHEMA_PROFILE } from "../schema-profile";
+import { auditLog } from "./schema";
 
 async function main() {
   console.log("Cleaning database...");
@@ -184,6 +185,98 @@ async function main() {
     rejectedRows: summary.rejected,
     duplicateRows: summary.duplicate,
   }).where(eq(importJob.id, jobId));
+
+  console.log("Seeding audit log entries...");
+  const now = new Date();
+  const hoursAgo = (h: number) => new Date(now.getTime() - h * 3600000);
+
+  await db.insert(auditLog).values([
+    {
+      id: nanoid(),
+      workspaceId,
+      actorUserId: dummyUserId,
+      actorEmail: "demo@signalforge.dev",
+      action: "workspace.created",
+      entityType: "workspace",
+      entityId: workspaceId,
+      summary: 'Workspace "Demo Workspace" created',
+      metadata: { name: "Demo Workspace" },
+      createdAt: hoursAgo(48),
+    },
+    {
+      id: nanoid(),
+      workspaceId,
+      actorUserId: dummyUserId,
+      actorEmail: "demo@signalforge.dev",
+      action: "schema_profile.updated",
+      entityType: "schema_profile",
+      entityId: profileId,
+      summary: 'Created schema profile "Default CRM Import"',
+      metadata: { profileName: "Default CRM Import" },
+      createdAt: hoursAgo(47),
+    },
+    {
+      id: nanoid(),
+      workspaceId,
+      actorUserId: dummyUserId,
+      actorEmail: "demo@signalforge.dev",
+      action: "import.previewed",
+      entityType: "import",
+      summary: `Previewed "${sampleImportFiles[0]}" — ${summary.total} rows (${summary.valid} valid, ${summary.rejected} rejected)`,
+      metadata: {
+        filename: sampleImportFiles[0],
+        totalRows: summary.total,
+        validRows: summary.valid,
+        rejectedRows: summary.rejected,
+      },
+      createdAt: hoursAgo(24),
+    },
+    {
+      id: nanoid(),
+      workspaceId,
+      actorUserId: dummyUserId,
+      actorEmail: "demo@signalforge.dev",
+      action: "import.confirmed",
+      entityType: "import",
+      entityId: jobId,
+      summary: `Confirmed import "${sampleImportFiles[0]}" — ${summary.valid} valid, ${summary.autoFixed} auto-fixed, ${summary.rejected} rejected, ${summary.duplicate} duplicate`,
+      metadata: {
+        filename: sampleImportFiles[0],
+        totalRows: summary.total,
+        validRows: summary.valid,
+        autoFixedRows: summary.autoFixed,
+        rejectedRows: summary.rejected,
+        duplicateRows: summary.duplicate,
+      },
+      createdAt: hoursAgo(23),
+    },
+    {
+      id: nanoid(),
+      workspaceId,
+      actorUserId: dummyUserId,
+      actorEmail: "demo@signalforge.dev",
+      action: "records.exported",
+      entityType: "export",
+      summary: `Exported ${summary.valid + summary.autoFixed} records as CSV`,
+      metadata: {
+        scope: "records",
+        format: "csv",
+        rowCount: summary.valid + summary.autoFixed,
+      },
+      createdAt: hoursAgo(2),
+    },
+    {
+      id: nanoid(),
+      workspaceId,
+      actorUserId: dummyUserId,
+      actorEmail: "demo@signalforge.dev",
+      action: "member.invited",
+      entityType: "invitation",
+      summary: "Invited newhire@example.com as member",
+      metadata: { email: "newhire@example.com", role: "member" },
+      createdAt: hoursAgo(1),
+    },
+  ]);
 
   console.log("Seed complete!");
   process.exit(0);

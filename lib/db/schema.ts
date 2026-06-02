@@ -202,7 +202,35 @@ export const apiKey = pgTable(
   ]
 );
 
-// Type exports for convenience
+// --- Audit Log Table ---
+
+export const auditLog = pgTable(
+  "audit_log",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    actorUserId: text("actor_user_id").notNull(),
+    actorEmail: text("actor_email"),
+    action: text("action").notNull(),
+    entityType: text("entity_type"),
+    entityId: text("entity_id"),
+    summary: text("summary").notNull(),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_audit_log_workspace_id").on(table.workspaceId),
+    index("idx_audit_log_created_at").on(table.createdAt),
+    index("idx_audit_log_action").on(table.action),
+    index("idx_audit_log_entity_type_id").on(table.entityType, table.entityId),
+  ]
+);
+
+export type AuditLog = typeof auditLog.$inferSelect;
+export type NewAuditLog = typeof auditLog.$inferInsert;
+
 export type ImportJob = typeof importJob.$inferSelect;
 export type NewImportJob = typeof importJob.$inferInsert;
 
