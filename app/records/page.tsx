@@ -6,6 +6,8 @@ import { normalizedRecord, importJob } from "@/lib/db/schema";
 import { eq, desc, ilike, or, and, sql } from "drizzle-orm";
 import { formatNumber } from "@/lib/format";
 
+import { requireWorkspace } from "@/lib/auth";
+
 export const dynamic = "force-dynamic";
 
 export default async function RecordsPage({
@@ -13,19 +15,19 @@ export default async function RecordsPage({
 }: {
   searchParams: Promise<{ q?: string; category?: string }>;
 }) {
+  const ws = await requireWorkspace();
   const { q, category } = await searchParams;
 
-  const conditions = [];
+  const conditions = [eq(normalizedRecord.workspaceId, ws.id)];
   if (category) conditions.push(eq(normalizedRecord.category, category));
   if (q) {
-    conditions.push(
-      or(
-        ilike(normalizedRecord.name, `%${q}%`),
-        ilike(normalizedRecord.email, `%${q}%`),
-        ilike(normalizedRecord.company, `%${q}%`),
-        ilike(normalizedRecord.externalId, `%${q}%`)
-      )
+    const searchOr = or(
+      ilike(normalizedRecord.name, `%${q}%`),
+      ilike(normalizedRecord.email, `%${q}%`),
+      ilike(normalizedRecord.company, `%${q}%`),
+      ilike(normalizedRecord.externalId, `%${q}%`)
     );
+    if (searchOr) conditions.push(searchOr);
   }
   const whereClause = conditions.length > 0 ? (conditions.length === 1 ? conditions[0] : and(...conditions)) : undefined;
 
@@ -46,6 +48,7 @@ export default async function RecordsPage({
         count: sql<number>`cast(count(${normalizedRecord.category}) as int)`,
       })
       .from(normalizedRecord)
+      .where(eq(normalizedRecord.workspaceId, ws.id))
       .groupBy(normalizedRecord.category),
   ]);
 

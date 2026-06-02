@@ -3,13 +3,15 @@ import { notFound } from "next/navigation";
 import SectionHeader from "@/components/SectionHeader";
 import StatCard from "@/components/StatCard";
 import StatusBadge from "@/components/StatusBadge";
-import ErrorTable from "@/components/ErrorTable";
 import RecordsTable from "@/components/RecordsTable";
+import RowReviewTable from "@/components/RowReviewTable";
 import EmptyState from "@/components/EmptyState";
 import { db } from "@/lib/db";
-import { importJob as importJobTable, validationError, normalizedRecord } from "@/lib/db/schema";
+import { importJob as importJobTable, importRow as importRowTable, normalizedRecord } from "@/lib/db/schema";
 import { eq, desc, asc } from "drizzle-orm";
 import { formatDateTime, formatNumber, formatPercent } from "@/lib/format";
+import type { ProcessedRow } from "@/lib/pipeline";
+import { SchemaProfileConfigSchema } from "@/lib/schema-profile";
 
 export const dynamic = "force-dynamic";
 
@@ -27,16 +29,55 @@ export default async function ImportDetailPage({
     notFound();
   }
 
-  const [errors, records] = await Promise.all([
-    db.select().from(validationError).where(eq(validationError.importJobId, id)).orderBy(asc(validationError.rowIndex)).limit(100),
+  const [dbRows, records] = await Promise.all([
+    db.select().from(importRowTable).where(eq(importRowTable.importJobId, id)).orderBy(asc(importRowTable.rowIndex)),
     db.select().from(normalizedRecord).where(eq(normalizedRecord.importJobId, id)).orderBy(desc(normalizedRecord.createdAt)).limit(50),
   ]);
 
+  const safeParse = (v: string | null) => {
+    try {
+      return v ? JSON.parse(v) : null;
+    } catch {
+      return v;
+    }
+  };
+
+  const mappedRows: ProcessedRow[] = dbRows.map((r) => {
+    const original = safeParse(r.originalData) ?? {};
+    const cleaned = safeParse(r.cleanedData) ?? {};
+    const allIssues = (safeParse(r.issues) ?? []) as Array<{
+      field: string;
+      message: string;
+      severity: "warning" | "error" | "fixed";
+      originalValue?: unknown;
+      cleanedValue?: unknown;
+    }>;
+
+    return {
+      rowIndex: r.rowIndex,
+      status: r.status as ProcessedRow["status"],
+      original,
+      cleaned,
+      dedupeKey: "", // Not strictly needed for audit UI
+      issues: allIssues.filter((i) => i.severity === "warning" || i.severity === "fixed"),
+      validationErrors: allIssues
+        .filter((i) => i.severity === "error")
+        .map((i) => ({ ...i, severity: "error" as const, rowIndex: r.rowIndex })),
+    };
+  });
+
   const importJob = {
     ...jobRow,
-    validationErrors: errors,
     records: records,
   };
+
+  let profileName = "Unknown Profile";
+  if (importJob.schemaProfileSnapshot) {
+    const res = SchemaProfileConfigSchema.safeParse(importJob.schemaProfileSnapshot);
+    if (res.success) {
+      profileName = res.data.name;
+    }
+  }
 
   const quality = importJob.totalRows
     ? importJob.validRows / importJob.totalRows
@@ -51,7 +92,7 @@ export default async function ImportDetailPage({
     <div className="space-y-8">
       <SectionHeader
         title={importJob.filename}
-        description={`${importJob.sourceType.toUpperCase()} · imported ${formatDateTime(
+        description={`${importJob.sourceType.toUpperCase()} · ${profileName} · imported ${formatDateTime(
           importJob.createdAt
         )}`}
         action={
@@ -79,7 +120,7 @@ export default async function ImportDetailPage({
         </div>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
         <StatCard
           label="Total Rows"
           value={formatNumber(importJob.totalRows)}
@@ -92,44 +133,49 @@ export default async function ImportDetailPage({
           tone="success"
         />
         <StatCard
-          label="Invalid"
-          value={formatNumber(importJob.invalidRows)}
-          tone="danger"
+          label="Auto-fixed"
+          value={formatNumber(importJob.autoFixedRows)}
+          tone="accent"
+        />
+        <StatCard
+          label="Needs Review"
+          value={formatNumber(importJob.needsReviewRows)}
+          tone="warning"
         />
         <StatCard
           label="Duplicates"
           value={formatNumber(importJob.duplicateRows)}
           tone="warning"
         />
+        <StatCard
+          label="Rejected"
+          value={formatNumber(importJob.rejectedRows)}
+          tone="danger"
+        />
       </div>
 
       <div className="space-y-4">
         <h2 className="text-lg font-semibold text-[var(--text)]">
-          Normalized Records
+          Audit Trail
         </h2>
-        {recordsWithJob.length ? (
+        {mappedRows.length ? (
+          <RowReviewTable rows={mappedRows} />
+        ) : (
+          <EmptyState
+            title="No stored rows"
+            description="There are no row-level details stored for this import."
+          />
+        )}
+      </div>
+
+      {recordsWithJob.length > 0 && (
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold text-[var(--text)]">
+            Normalized Records Sample
+          </h2>
           <RecordsTable records={recordsWithJob} />
-        ) : (
-          <EmptyState
-            title="No stored records"
-            description="This import produced no valid normalized records."
-          />
-        )}
-      </div>
-
-      <div className="space-y-4">
-        <h2 className="text-lg font-semibold text-[var(--text)]">
-          Validation Errors
-        </h2>
-        {importJob.validationErrors.length ? (
-          <ErrorTable errors={importJob.validationErrors} />
-        ) : (
-          <EmptyState
-            title="No validation errors"
-            description="Every row in this import passed validation."
-          />
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

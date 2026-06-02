@@ -1,7 +1,10 @@
 'use client';
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+
+import { UserButton, SignInButton, useAuth } from "@clerk/nextjs";
+import { setActiveWorkspaceAction } from "@/lib/actions";
 
 const navItems = [
   { label: "Dashboard", href: "/" },
@@ -12,8 +15,23 @@ const navItems = [
   { label: "Settings", href: "/settings" },
 ];
 
-export default function SidebarNav() {
+type SidebarNavProps = {
+  workspaces: Array<{ id: string; name: string }>;
+  activeWorkspaceId: string | null;
+};
+
+export default function SidebarNav({ workspaces, activeWorkspaceId }: SidebarNavProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { isLoaded, userId } = useAuth();
+
+  const handleWorkspaceChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newId = e.target.value;
+    if (newId) {
+      await setActiveWorkspaceAction(newId);
+      router.refresh();
+    }
+  };
 
   return (
     <aside className="relative z-10 flex w-64 flex-col border-r border-[var(--border)] bg-[var(--panel)] px-5 py-6">
@@ -30,9 +48,22 @@ export default function SidebarNav() {
       </div>
 
       <div className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--panel-soft)] px-3 py-4">
-        <p className="text-xs text-[var(--muted)]">Active profile</p>
-        <p className="mt-2 text-sm font-semibold">Default Intake</p>
-        <p className="text-xs text-[var(--muted)]">CSV + JSON</p>
+        <p className="text-xs text-[var(--muted)] mb-2">Workspace</p>
+        <select
+          value={activeWorkspaceId || ""}
+          onChange={handleWorkspaceChange}
+          className="w-full bg-[var(--bg)] border border-[var(--border)] rounded px-2 py-1 text-sm outline-none focus:border-[var(--accent)] transition"
+        >
+          {workspaces.map((ws) => (
+            <option key={ws.id} value={ws.id}>
+              {ws.name}
+            </option>
+          ))}
+          {workspaces.length === 0 && (
+            <option value="">No active workspace</option>
+          )}
+        </select>
+        <p className="text-xs text-[var(--muted)] mt-3">Default Profile</p>
       </div>
 
       <nav className="mt-8 flex flex-1 flex-col gap-1">
@@ -63,9 +94,18 @@ export default function SidebarNav() {
         })}
       </nav>
 
-      <div className="mt-auto border-t border-[var(--border)] pt-4 text-xs text-[var(--muted)]">
-        <p>SignalForge v1 • Ops Console</p>
-        <p className="mt-1">No auth — demo mode</p>
+      <div className="mt-auto border-t border-[var(--border)] pt-4 text-xs text-[var(--muted)] flex items-center justify-between">
+        <div>
+          <p>SignalForge v1 • Ops Console</p>
+          {isLoaded && userId ? (
+            <p className="mt-1 text-[var(--accent)]">Authenticated</p>
+          ) : isLoaded && !userId ? (
+            <SignInButton mode="modal">
+              <button className="mt-1 text-[var(--accent)] hover:underline">Sign In</button>
+            </SignInButton>
+          ) : null}
+        </div>
+        {isLoaded && userId && <UserButton />}
       </div>
     </aside>
   );

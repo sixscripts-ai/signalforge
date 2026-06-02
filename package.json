@@ -7,9 +7,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "db:seed": "tsx --env-file=.env.local lib/db/seed.ts"
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:seed": "tsx --env-file=.env.local lib/db/seed.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
+    "@clerk/nextjs": "^7.4.2",
     "drizzle-orm": "^0.45.2",
     "nanoid": "^5.1.11",
     "next": "16.2.6",
@@ -26,13 +31,12 @@
     "@types/pg": "^8.20.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "tailwindcss": "^4",
     "tsx": "^4.20.5",
-    "typescript": "^5"
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
+    "typescript": "^5",
+    "vitest": "^4.1.8"
   }
 }

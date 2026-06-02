@@ -26,7 +26,7 @@ export default async function DashboardPage() {
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <StatCard
           label="Total Imports"
           value={formatNumber(stats.totalImports)}
@@ -43,16 +43,28 @@ export default async function DashboardPage() {
         <StatCard
           label="Data Quality"
           value={formatPercent(stats.qualityScore)}
-          hint={`${formatNumber(stats.validRows)} valid rows`}
+          hint={`${formatNumber(stats.importedRows)} imported rows`}
           tone="success"
+        />
+        <StatCard
+          label="Auto-fixed"
+          value={formatNumber(stats.autoFixedRows)}
+          hint="Cleaned automatically"
+          tone="accent"
+        />
+        <StatCard
+          label="Needs Review"
+          value={formatNumber(stats.needsReviewRows)}
+          hint="Requires human check"
+          tone="warning"
         />
         <StatCard
           label="Rejected & Dupes"
           value={formatNumber(stats.rejectedRows + stats.duplicateRows)}
-          hint={`${formatNumber(stats.rejectedRows)} invalid · ${formatNumber(
+          hint={`${formatNumber(stats.rejectedRows)} rejected · ${formatNumber(
             stats.duplicateRows
           )} duplicate`}
-          tone="warning"
+          tone="danger"
         />
       </div>
 

@@ -4,14 +4,17 @@ import ImportTable from "@/components/ImportTable";
 import EmptyState from "@/components/EmptyState";
 import { db } from "@/lib/db";
 import { importJob } from "@/lib/db/schema";
-import { desc } from "drizzle-orm";
+import { requireWorkspace } from "@/lib/auth";
+import { eq, desc } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
 export default async function ImportsPage() {
+  const ws = await requireWorkspace();
   const imports = await db
     .select()
     .from(importJob)
+    .where(eq(importJob.workspaceId, ws.id))
     .orderBy(desc(importJob.createdAt));
 
   return (

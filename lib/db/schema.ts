@@ -5,7 +5,58 @@ import {
   doublePrecision,
   timestamp,
   index,
+  jsonb,
 } from "drizzle-orm/pg-core";
+
+// --- Workspace Tables ---
+
+export const workspace = pgTable("workspace", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const workspaceMember = pgTable(
+  "workspace_member",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    role: text("role").notNull().default("member"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_workspace_member_user_id").on(table.userId),
+    index("idx_workspace_member_workspace_id").on(table.workspaceId),
+  ]
+);
+
+export const workspaceInvitation = pgTable(
+  "workspace_invitation",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: text("role").notNull().default("member"),
+    token: text("token").notNull().unique(),
+    status: text("status").notNull().default("pending"), // pending, accepted, revoked, expired
+    invitedByUserId: text("invited_by_user_id").notNull(),
+    acceptedByUserId: text("accepted_by_user_id"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_workspace_invitation_workspace_id").on(table.workspaceId),
+    index("idx_workspace_invitation_email").on(table.email),
+    index("idx_workspace_invitation_token").on(table.token),
+  ]
+);
 
 // --- SignalForge Tables ---
 
@@ -13,59 +64,51 @@ export const importJob = pgTable(
   "import_job",
   {
     id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
     filename: text("filename").notNull(),
     sourceType: text("source_type").notNull(),
     status: text("status").notNull(),
     totalRows: integer("total_rows").notNull().default(0),
     validRows: integer("valid_rows").notNull().default(0),
-    invalidRows: integer("invalid_rows").notNull().default(0),
+    autoFixedRows: integer("auto_fixed_rows").notNull().default(0),
+    needsReviewRows: integer("needs_review_rows").notNull().default(0),
     duplicateRows: integer("duplicate_rows").notNull().default(0),
+    rejectedRows: integer("rejected_rows").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     errorMessage: text("error_message"),
+    schemaProfileSnapshot: jsonb("schema_profile_snapshot"),
   },
   (table) => [
+    index("idx_import_job_workspace_id").on(table.workspaceId),
     index("idx_import_job_created_at").on(table.createdAt),
     index("idx_import_job_status").on(table.status),
   ]
 );
 
-export const rawRow = pgTable(
-  "raw_row",
+export const importRow = pgTable(
+  "import_row",
   {
     id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
     importJobId: text("import_job_id")
       .notNull()
       .references(() => importJob.id, { onDelete: "cascade" }),
     rowIndex: integer("row_index").notNull(),
-    rawData: text("raw_data").notNull(),
     status: text("status").notNull(),
-    errorSummary: text("error_summary"),
+    originalData: text("original_data").notNull(),
+    cleanedData: text("cleaned_data"),
+    issues: text("issues"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index("idx_raw_row_import_job_id").on(table.importJobId),
-    index("idx_raw_row_status").on(table.status),
-  ]
-);
-
-export const validationError = pgTable(
-  "validation_error",
-  {
-    id: text("id").primaryKey(),
-    importJobId: text("import_job_id")
-      .notNull()
-      .references(() => importJob.id, { onDelete: "cascade" }),
-    rawRowId: text("raw_row_id").references(() => rawRow.id, { onDelete: "cascade" }),
-    rowIndex: integer("row_index").notNull(),
-    field: text("field").notNull(),
-    message: text("message").notNull(),
-    severity: text("severity").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    index("idx_validation_error_import_job_id").on(table.importJobId),
-    index("idx_validation_error_severity").on(table.severity),
+    index("idx_import_row_workspace_id").on(table.workspaceId),
+    index("idx_import_row_import_job_id").on(table.importJobId),
+    index("idx_import_row_status").on(table.status),
   ]
 );
 
@@ -73,6 +116,9 @@ export const normalizedRecord = pgTable(
   "normalized_record",
   {
     id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
     importJobId: text("import_job_id")
       .notNull()
       .references(() => importJob.id, { onDelete: "cascade" }),
@@ -88,6 +134,7 @@ export const normalizedRecord = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    index("idx_normalized_record_workspace_id").on(table.workspaceId),
     index("idx_normalized_record_dedupe_key").on(table.dedupeKey),
     index("idx_normalized_record_import_job_id").on(table.importJobId),
     index("idx_normalized_record_email").on(table.email),
@@ -97,11 +144,15 @@ export const normalizedRecord = pgTable(
 
 export const schemaProfile = pgTable("schema_profile", {
   id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspace.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
-  requiredFields: text("required_fields").notNull(),
-  fieldMappings: text("field_mappings").notNull(),
-  validationRules: text("validation_rules").notNull(),
-  dedupeStrategy: text("dedupe_strategy").notNull(),
+  requiredFields: jsonb("required_fields").notNull(),
+  fieldMappings: jsonb("field_mappings").notNull(),
+  cleanupRules: jsonb("cleanup_rules").notNull(),
+  validationRules: jsonb("validation_rules").notNull(),
+  dedupeStrategy: jsonb("dedupe_strategy").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -110,14 +161,14 @@ export const schemaProfile = pgTable("schema_profile", {
 export type ImportJob = typeof importJob.$inferSelect;
 export type NewImportJob = typeof importJob.$inferInsert;
 
-export type RawRow = typeof rawRow.$inferSelect;
-export type NewRawRow = typeof rawRow.$inferInsert;
-
-export type ValidationError = typeof validationError.$inferSelect;
-export type NewValidationError = typeof validationError.$inferInsert;
+export type ImportRow = typeof importRow.$inferSelect;
+export type NewImportRow = typeof importRow.$inferInsert;
 
 export type NormalizedRecord = typeof normalizedRecord.$inferSelect;
 export type NewNormalizedRecord = typeof normalizedRecord.$inferInsert;
 
-export type SchemaProfile = typeof schemaProfile.$inferSelect;
-export type NewSchemaProfile = typeof schemaProfile.$inferInsert;
+export type SchemaProfileRecord = typeof schemaProfile.$inferSelect;
+export type NewSchemaProfileRecord = typeof schemaProfile.$inferInsert;
+
+export type WorkspaceInvitation = typeof workspaceInvitation.$inferSelect;
+export type NewWorkspaceInvitation = typeof workspaceInvitation.$inferInsert;

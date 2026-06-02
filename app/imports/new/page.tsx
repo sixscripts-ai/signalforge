@@ -4,137 +4,111 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import SectionHeader from "@/components/SectionHeader";
 import UploadDropzone from "@/components/UploadDropzone";
-import DataPreviewTable from "@/components/DataPreviewTable";
-import ValidationSummary from "@/components/ValidationSummary";
-import ErrorTable from "@/components/ErrorTable";
+import PreviewSummary from "@/components/PreviewSummary";
+import RowReviewTable from "@/components/RowReviewTable";
 import StepIndicator from "@/components/StepIndicator";
 import { MAX_ROW_COUNT, MAX_UPLOAD_BYTES } from "@/lib/constants";
-import { parseImportFile } from "@/lib/parser";
-import { mapFieldVariants, normalizeRow } from "@/lib/normalizer";
-import { validateRow } from "@/lib/validators";
-import { computeDedupeKey } from "@/lib/dedupe";
+import type { ProcessedRow } from "@/lib/pipeline";
+import type { ImportSummary } from "@/lib/pipeline";
 
 const ACCEPTED_TYPES = [".csv", ".json"].join(",");
 
+type PreviewState = {
+  filename: string;
+  sourceType: string;
+  schemaProfileName: string;
+  rows: ProcessedRow[];
+  summary: ImportSummary;
+  warnings: string[];
+};
+
 export default function NewImportPage() {
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<{
-    columns: string[];
-    rows: Record<string, unknown>[];
-    warnings: string[];
-  } | null>(null);
-  const [validationErrors, setValidationErrors] = useState<
-    { rowIndex: number; field: string; message: string }[]
-  >([]);
-  const [counts, setCounts] = useState({ total: 0, valid: 0, invalid: 0, duplicate: 0 });
+  const [isUploading, setIsUploading] = useState(false);
+  const [preview, setPreview] = useState<PreviewState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [importId, setImportId] = useState<string | null>(null);
 
+  const currentStep = useMemo(() => {
+    if (importId) return 3;
+    if (preview) return 1;
+    return 0;
+  }, [preview, importId]);
+
   const steps = useMemo(() => {
-    if (!file) {
-      return [
-        { label: "Upload", status: "active" as const },
-        { label: "Validate", status: "pending" as const },
-        { label: "Import", status: "pending" as const },
-      ];
-    }
-
-    if (!importId) {
-      return [
-        { label: "Upload", status: "complete" as const },
-        { label: "Validate", status: "active" as const },
-        { label: "Import", status: "pending" as const },
-      ];
-    }
-
-    return [
-      { label: "Upload", status: "complete" as const },
-      { label: "Validate", status: "complete" as const },
-      { label: "Import", status: "complete" as const },
+    const all: { label: string; status: "complete" | "active" | "pending" }[] = [
+      { label: "Upload", status: "pending" },
+      { label: "Preview", status: "pending" },
+      { label: "Review", status: "pending" },
+      { label: "Import", status: "pending" },
     ];
-  }, [file, importId]);
 
-  const handleFileSelected = async (nextFile: File) => {
+    for (let i = 0; i < all.length; i++) {
+      if (i < currentStep) all[i].status = "complete";
+      else if (i === currentStep) all[i].status = "active";
+    }
+    // When import is done, mark all complete
+    if (importId) {
+      all.forEach((s) => (s.status = "complete"));
+    }
+
+    return all;
+  }, [currentStep, importId]);
+
+  const handleFileSelected = async (file: File) => {
     setError(null);
     setImportId(null);
+    setPreview(null);
 
-    if (nextFile.size > MAX_UPLOAD_BYTES) {
+    if (file.size > MAX_UPLOAD_BYTES) {
       setError(`File exceeds ${MAX_UPLOAD_BYTES / 1024 / 1024}MB limit.`);
       return;
     }
 
-    try {
-      const content = await nextFile.text();
-      const parsed = parseImportFile({
-        filename: nextFile.name,
-        content,
-        mimeType: nextFile.type,
-        maxRows: MAX_ROW_COUNT,
-      });
-
-      const dedupeSet = new Set<string>();
-      const errors: { rowIndex: number; field: string; message: string }[] = [];
-      let valid = 0;
-      let invalid = 0;
-      let duplicate = 0;
-
-      parsed.rows.forEach((row, index) => {
-        const rowIndex = index + 1;
-        const mapped = mapFieldVariants(row);
-        const normalized = normalizeRow(mapped);
-        const validation = validateRow(rowIndex, mapped, normalized);
-        let status: "valid" | "invalid" | "duplicate" = validation.status;
-        const dedupeKey = computeDedupeKey(normalized, `preview-${rowIndex}`);
-
-        if (status === "valid") {
-          if (dedupeSet.has(dedupeKey)) {
-            status = "duplicate";
-          } else {
-            dedupeSet.add(dedupeKey);
-          }
-        }
-
-        if (status === "valid") valid += 1;
-        if (status === "invalid") invalid += 1;
-        if (status === "duplicate") duplicate += 1;
-
-        if (validation.errors.length) {
-          errors.push(
-            ...validation.errors.map((err) => ({
-              rowIndex,
-              field: err.field,
-              message: err.message,
-            }))
-          );
-        }
-      });
-
-      setFile(nextFile);
-      setPreview({
-        columns: parsed.columns,
-        rows: parsed.rows.slice(0, 8),
-        warnings: parsed.warnings ?? [],
-      });
-      setValidationErrors(errors.slice(0, 12));
-      setCounts({ total: parsed.rows.length, valid, invalid, duplicate });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to parse file.");
-    }
-  };
-
-  const handleImport = async () => {
-    if (!file) return;
-    setIsImporting(true);
-    setError(null);
-
+    setIsUploading(true);
     try {
       const formData = new FormData();
       formData.append("file", file);
 
-      const res = await fetch("/api/imports", {
+      const res = await fetch("/api/imports/preview", {
         method: "POST",
         body: formData,
+      });
+
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload.error ?? "Preview failed.");
+      }
+
+      setPreview({
+        filename: payload.filename,
+        sourceType: payload.sourceType,
+        schemaProfileName: payload.schemaProfileName,
+        rows: payload.rows,
+        summary: payload.summary,
+        warnings: payload.warnings,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to preview file.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleConfirmImport = async () => {
+    if (!preview) return;
+    setIsImporting(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/imports/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: preview.filename,
+          sourceType: preview.sourceType,
+          originalRows: preview.rows.map((r) => r.original),
+        }),
       });
 
       const payload = await res.json();
@@ -154,77 +128,99 @@ export default function NewImportPage() {
     <div className="space-y-8">
       <SectionHeader
         title="New Import"
-        description="Upload CSV or JSON arrays and validate before ingesting into SignalForge."
+        description="Upload CSV or JSON, preview row classifications, then confirm import."
         action={
-          <button
-            onClick={handleImport}
-            disabled={!file || isImporting}
-            className="rounded-lg border border-[var(--accent-border)] bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isImporting ? "Importing..." : "Import Valid Rows"}
-          </button>
+          preview && !importId ? (
+            <button
+              onClick={handleConfirmImport}
+              disabled={isImporting || preview.summary.importable === 0}
+              className="rounded-lg border border-[var(--accent-border)] bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isImporting
+                ? "Importing..."
+                : `Import ${preview.summary.importable} Rows`}
+            </button>
+          ) : undefined
         }
       />
 
       <StepIndicator steps={steps} />
 
-      <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-        <div className="space-y-6">
-          <UploadDropzone
-            accept={ACCEPTED_TYPES}
-            hint={`CSV or JSON only · max ${MAX_ROW_COUNT} rows · ${
-              MAX_UPLOAD_BYTES / 1024 / 1024
-            }MB limit`}
-            onFileSelected={handleFileSelected}
-          />
+      {/* Upload Phase */}
+      {!importId && (
+        <UploadDropzone
+          accept={ACCEPTED_TYPES}
+          hint={`CSV or JSON only · max ${MAX_ROW_COUNT} rows · ${
+            MAX_UPLOAD_BYTES / 1024 / 1024
+          }MB limit`}
+          onFileSelected={handleFileSelected}
+        />
+      )}
 
-          {preview ? (
-            <div className="space-y-4">
-              <h2 className="text-sm font-semibold text-[var(--text)]">
-                Preview (first {preview.rows.length} rows)
-              </h2>
-              <DataPreviewTable columns={preview.columns} rows={preview.rows} />
-            </div>
-          ) : null}
+      {isUploading && (
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--panel-soft)] p-6 text-center">
+          <p className="text-sm text-[var(--muted)] animate-pulse">
+            Processing file...
+          </p>
         </div>
+      )}
 
-        <div className="space-y-6">
-          <ValidationSummary
-            total={counts.total}
-            valid={counts.valid}
-            invalid={counts.invalid}
-            duplicate={counts.duplicate}
-            warnings={preview?.warnings ?? []}
-          />
-
-          {importId ? (
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--panel-soft)] p-5 text-sm">
-              <p className="text-[var(--text)]">Import complete.</p>
-              <Link
-                href={`/imports/${importId}`}
-                className="mt-2 inline-flex text-[var(--accent)] hover:text-[var(--accent-strong)]"
-              >
-                View import details →
-              </Link>
-            </div>
-          ) : null}
-
-          {validationErrors.length ? (
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-[var(--text)]">
-                Validation Errors (sample)
-              </h3>
-              <ErrorTable errors={validationErrors} />
-            </div>
-          ) : null}
-
-          {error ? (
-            <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">
-              {error}
-            </div>
-          ) : null}
+      {/* Error */}
+      {error && (
+        <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">
+          {error}
         </div>
-      </div>
+      )}
+
+      {/* Preview + Review Phase */}
+      {preview && !importId && (
+        <div className="space-y-6">
+          <div className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--panel-soft)] px-4 py-3">
+            <span className="text-sm font-medium text-[var(--text)]">Using schema profile:</span>
+            <span className="text-sm text-[var(--accent)]">{preview.schemaProfileName}</span>
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-[var(--text)]">
+                  Row Review
+                </h2>
+                <span className="text-xs text-[var(--muted)]">
+                  {preview.filename}
+                </span>
+              </div>
+              <RowReviewTable rows={preview.rows} />
+            </div>
+            <div>
+              <PreviewSummary
+                summary={preview.summary}
+                warnings={preview.warnings}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import Complete Phase */}
+      {importId && (
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-6">
+          <p className="text-sm font-semibold text-emerald-300">
+            ✓ Import complete
+          </p>
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            {preview?.summary.importable ?? 0} rows imported successfully.
+            {(preview?.summary.rejected ?? 0) > 0 &&
+              ` ${preview?.summary.rejected} rows were rejected.`}
+          </p>
+          <Link
+            href={`/imports/${importId}`}
+            className="mt-3 inline-flex text-sm text-[var(--accent)] hover:text-[var(--accent-strong)]"
+          >
+            View import details →
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

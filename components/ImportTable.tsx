@@ -20,7 +20,9 @@ export default function ImportTable({ imports }: ImportTableProps) {
               <th className="px-4 py-3 text-left font-medium">Status</th>
               <th className="px-4 py-3 text-right font-medium">Rows</th>
               <th className="px-4 py-3 text-right font-medium">Valid</th>
-              <th className="px-4 py-3 text-right font-medium">Invalid</th>
+              <th className="px-4 py-3 text-right font-medium">Auto-fixed</th>
+              <th className="px-4 py-3 text-right font-medium">Review</th>
+              <th className="px-4 py-3 text-right font-medium">Rejected</th>
               <th className="px-4 py-3 text-right font-medium">Duplicates</th>
               <th className="px-4 py-3 text-left font-medium">Created</th>
               <th className="px-4 py-3 text-left font-medium">Completed</th>
@@ -49,8 +51,14 @@ export default function ImportTable({ imports }: ImportTableProps) {
                 <td className="px-4 py-3 text-right text-emerald-300">
                   {formatNumber(job.validRows)}
                 </td>
+                <td className="px-4 py-3 text-right text-blue-300">
+                  {formatNumber(job.autoFixedRows)}
+                </td>
+                <td className="px-4 py-3 text-right text-amber-300">
+                  {formatNumber(job.needsReviewRows)}
+                </td>
                 <td className="px-4 py-3 text-right text-rose-300">
-                  {formatNumber(job.invalidRows)}
+                  {formatNumber(job.rejectedRows)}
                 </td>
                 <td className="px-4 py-3 text-right text-amber-300">
                   {formatNumber(job.duplicateRows)}

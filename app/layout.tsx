@@ -23,19 +23,29 @@ export const viewport: Viewport = {
   themeColor: "#060b16",
 };
 
-export default function RootLayout({
+import { ClerkProvider } from "@clerk/nextjs";
+import { getCurrentWorkspace, getUserWorkspaces } from "@/lib/auth";
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const workspace = await getCurrentWorkspace();
+  const workspaces = await getUserWorkspaces();
+
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased bg-[var(--bg)]`}
-    >
-      <body className="min-h-full">
-        <AppShell>{children}</AppShell>
-      </body>
-    </html>
+    <ClerkProvider>
+      <html
+        lang="en"
+        className={`${geistSans.variable} ${geistMono.variable} h-full antialiased bg-[var(--bg)]`}
+      >
+        <body className="min-h-full">
+          <AppShell workspaces={workspaces} activeWorkspaceId={workspace?.id || null}>
+            {children}
+          </AppShell>
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }

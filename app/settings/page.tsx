@@ -1,29 +1,46 @@
 import SectionHeader from "@/components/SectionHeader";
-import JsonBlock from "@/components/JsonBlock";
-import EmptyState from "@/components/EmptyState";
+import SchemaProfileForm from "@/components/SchemaProfileForm";
 import { db } from "@/lib/db";
 import { schemaProfile } from "@/lib/db/schema";
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { MAX_ROW_COUNT, MAX_UPLOAD_BYTES } from "@/lib/constants";
-import { formatDateTime } from "@/lib/format";
+import { SchemaProfileConfigSchema, DEFAULT_SCHEMA_PROFILE } from "@/lib/schema-profile";
+import { requireWorkspace, getWorkspaceMembership } from "@/lib/auth";
+import TeamSettings from "@/components/TeamSettings";
+import { workspaceMember, workspaceInvitation } from "@/lib/db/schema";
 
 export const dynamic = "force-dynamic";
 
-function safeParse(value: string | null) {
-  try {
-    return value ? JSON.parse(value) : null;
-  } catch {
-    return value;
-  }
-}
-
 export default async function SettingsPage() {
-  const profile = await db
+  const ws = await requireWorkspace();
+
+  const profileRecord = await db
     .select()
     .from(schemaProfile)
+    .where(eq(schemaProfile.workspaceId, ws.id))
     .orderBy(desc(schemaProfile.createdAt))
     .limit(1)
     .then((res) => res[0] || null);
+
+  const activeProfile = profileRecord
+    ? SchemaProfileConfigSchema.parse(profileRecord)
+    : DEFAULT_SCHEMA_PROFILE;
+
+  const wsMember = await getWorkspaceMembership();
+  const members = await db
+    .select()
+    .from(workspaceMember)
+    .where(eq(workspaceMember.workspaceId, ws.id))
+    .orderBy(desc(workspaceMember.createdAt));
+
+  let invitations: (typeof workspaceInvitation.$inferSelect)[] = [];
+  if (wsMember && (wsMember.role === "admin" || wsMember.role === "owner")) {
+    invitations = await db
+      .select()
+      .from(workspaceInvitation)
+      .where(eq(workspaceInvitation.workspaceId, ws.id))
+      .orderBy(desc(workspaceInvitation.createdAt));
+  }
 
   return (
     <div className="space-y-8">
@@ -52,55 +69,30 @@ export default async function SettingsPage() {
       </div>
 
       <div className="space-y-4">
-        <h2 className="text-lg font-semibold text-[var(--text)]">
-          Active Schema Profile
-        </h2>
-
-        {profile ? (
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3">
-              <span className="text-sm font-semibold text-[var(--text)]">
-                {profile.name}
-              </span>
-              <span className="text-xs text-[var(--muted)]">
-                Updated {formatDateTime(profile.updatedAt)}
-              </span>
-            </div>
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <div className="space-y-2">
-                <p className="text-sm font-medium text-[var(--text)]">
-                  Required Fields
-                </p>
-                <JsonBlock data={safeParse(profile.requiredFields)} />
-              </div>
-              <div className="space-y-2">
-                <p className="text-sm font-medium text-[var(--text)]">
-                  Field Mappings
-                </p>
-                <JsonBlock data={safeParse(profile.fieldMappings)} />
-              </div>
-              <div className="space-y-2">
-                <p className="text-sm font-medium text-[var(--text)]">
-                  Validation Rules
-                </p>
-                <JsonBlock data={safeParse(profile.validationRules)} />
-              </div>
-              <div className="space-y-2">
-                <p className="text-sm font-medium text-[var(--text)]">
-                  Dedupe Strategy
-                </p>
-                <JsonBlock data={safeParse(profile.dedupeStrategy)} />
-              </div>
-            </div>
-          </div>
-        ) : (
-          <EmptyState
-            title="No schema profile"
-            description="Seed the database or create a profile to configure validation rules."
-          />
-        )}
+        <SchemaProfileForm initialProfile={activeProfile} />
       </div>
+
+      {wsMember && (
+        <TeamSettings
+          members={members.map(m => ({
+            id: m.id,
+            userId: m.userId,
+            role: m.role,
+            createdAt: m.createdAt.toISOString()
+          }))}
+          invitations={invitations.map(i => ({
+            id: i.id,
+            email: i.email,
+            role: i.role,
+            status: i.status,
+            expiresAt: i.expiresAt.toISOString(),
+            token: i.token,
+            createdAt: i.createdAt.toISOString()
+          }))}
+          currentUserRole={wsMember.role}
+          currentUserId={wsMember.userId}
+        />
+      )}
     </div>
   );
 }

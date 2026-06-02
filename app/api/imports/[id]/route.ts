@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
-import { importJob, rawRow, validationError, normalizedRecord } from "@/lib/db/schema";
-import { eq, asc, desc } from "drizzle-orm";
+import { importJob, importRow, normalizedRecord } from "@/lib/db/schema";
+import { eq, asc, desc, and } from "drizzle-orm";
+import { requireWorkspace } from "@/lib/auth";
 
 export async function GET(
   _request: Request,
@@ -8,34 +9,30 @@ export async function GET(
 ) {
   const { id } = await params;
 
-  const job = await db.query.importJob.findFirst({
-    where: eq(importJob.id, id),
-  });
+  try {
+    const ws = await requireWorkspace();
+    const job = await db.query.importJob.findFirst({
+      where: and(eq(importJob.id, id), eq(importJob.workspaceId, ws.id)),
+    });
 
-  if (!job) {
-    return Response.json({ error: "Import not found." }, { status: 404 });
-  }
+    if (!job) {
+      return Response.json({ error: { code: "NOT_FOUND", message: "Import not found." } }, { status: 404 });
+    }
 
-  const [rawRows, errors, records] = await Promise.all([
-    db
-      .select()
-      .from(rawRow)
-      .where(eq(rawRow.importJobId, id))
-      .orderBy(asc(rawRow.rowIndex))
-      .limit(50),
-    db
-      .select()
-      .from(validationError)
-      .where(eq(validationError.importJobId, id))
-      .orderBy(asc(validationError.rowIndex))
-      .limit(100),
-    db
-      .select()
-      .from(normalizedRecord)
-      .where(eq(normalizedRecord.importJobId, id))
-      .orderBy(desc(normalizedRecord.createdAt))
-      .limit(50),
-  ]);
+    const [dbRows, records] = await Promise.all([
+      db
+        .select()
+        .from(importRow)
+        .where(eq(importRow.importJobId, id))
+        .orderBy(asc(importRow.rowIndex))
+        .limit(100),
+      db
+        .select()
+        .from(normalizedRecord)
+        .where(eq(normalizedRecord.importJobId, id))
+        .orderBy(desc(normalizedRecord.createdAt))
+        .limit(50),
+    ]);
 
   const safeParse = (v: string | null) => {
     try {
@@ -45,12 +42,22 @@ export async function GET(
     }
   };
 
-  const parsed = {
-    ...job,
-    rawRows: rawRows.map((r) => ({ ...r, rawData: safeParse(r.rawData) })),
-    validationErrors: errors,
-    records,
-  };
+  const parsedRows = dbRows.map((r) => ({
+    ...r,
+    originalData: safeParse(r.originalData),
+    cleanedData: safeParse(r.cleanedData),
+    issues: safeParse(r.issues) ?? [],
+  }));
 
-  return Response.json({ import: parsed });
+    const parsed = {
+      ...job,
+      rows: parsedRows,
+      records,
+    };
+
+    return Response.json({ import: parsed });
+  } catch (err) {
+    console.error(err);
+    return Response.json({ error: { code: "DB_ERROR", message: "Failed to fetch import details." } }, { status: 500 });
+  }
 }

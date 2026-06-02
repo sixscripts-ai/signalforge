@@ -1,90 +1,77 @@
 import { db } from "@/lib/db";
 import { importJob, importRow, normalizedRecord, schemaProfile } from "@/lib/db/schema";
-import { MAX_ROW_COUNT, MAX_UPLOAD_BYTES } from "@/lib/constants";
-import { parseImportFile } from "@/lib/parser";
-import { processRows } from "@/lib/pipeline";
-import { desc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { SchemaProfileConfigSchema, DEFAULT_SCHEMA_PROFILE } from "@/lib/schema-profile";
-
+import { eq, desc } from "drizzle-orm";
+import { processRows } from "@/lib/pipeline";
+import { DEFAULT_SCHEMA_PROFILE, SchemaProfileConfigSchema } from "@/lib/schema-profile";
 import { requireWorkspace } from "@/lib/auth";
 
-export async function GET() {
-  const ws = await requireWorkspace();
-  const imports = await db
-    .select()
-    .from(importJob)
-    .where(eq(importJob.workspaceId, ws.id))
-    .orderBy(desc(importJob.createdAt));
-
-  return Response.json({ imports });
-}
+type ConfirmPayload = {
+  filename: string;
+  sourceType: string;
+  originalRows: Record<string, unknown>[];
+};
 
 export async function POST(request: Request) {
-  const ws = await requireWorkspace();
-  const formData = await request.formData();
-  const file = formData.get("file");
-
-  if (!(file instanceof File)) {
-    return Response.json({ error: "File is required." }, { status: 400 });
-  }
-
-  if (file.size > MAX_UPLOAD_BYTES) {
-    return Response.json(
-      { error: `File exceeds ${MAX_UPLOAD_BYTES / 1024 / 1024}MB limit.` },
-      { status: 413 }
-    );
-  }
-
-  const content = await file.text();
-
-  let parsed;
+  let payload: ConfirmPayload;
   try {
-    parsed = parseImportFile({
-      filename: file.name,
-      content,
-      mimeType: file.type,
-      maxRows: MAX_ROW_COUNT,
-    });
-  } catch (error) {
+    payload = await request.json();
+  } catch {
+    return Response.json({ error: { code: "INVALID_JSON", message: "Invalid JSON body." } }, { status: 400 });
+  }
+
+  const { filename, sourceType, originalRows } = payload;
+
+  if (!filename || !sourceType || !Array.isArray(originalRows) || originalRows.length === 0) {
     return Response.json(
-      { error: error instanceof Error ? error.message : "Parse failed." },
+      { error: { code: "MISSING_FIELDS", message: "Missing required fields: filename, sourceType, originalRows." } },
       { status: 400 }
     );
   }
 
-  const profileRecord = await db
-    .select()
-    .from(schemaProfile)
-    .where(eq(schemaProfile.workspaceId, ws.id))
-    .orderBy(desc(schemaProfile.createdAt))
-    .limit(1)
-    .then((res) => res[0] || null);
+  let profileRecord;
+  let ws;
+  try {
+    ws = await requireWorkspace();
+    profileRecord = await db
+      .select()
+      .from(schemaProfile)
+      .where(eq(schemaProfile.workspaceId, ws.id))
+      .orderBy(desc(schemaProfile.createdAt))
+      .limit(1)
+      .then((res) => res[0] || null);
+  } catch (err) {
+    console.error(err);
+    return Response.json(
+      { error: { code: "DB_ERROR", message: "Failed to load schema profile." } },
+      { status: 500 }
+    );
+  }
 
-  const activeProfile = profileRecord
+  const profile = profileRecord
     ? SchemaProfileConfigSchema.parse(profileRecord)
     : DEFAULT_SCHEMA_PROFILE;
 
-  const { rows, summary } = processRows(parsed.rows, undefined, activeProfile);
+  // HARDENING: Re-run the entire pipeline server-side to prevent client manipulation
+  // We use the active schema profile from the DB to ensure consistency
+  const { rows, summary } = processRows(originalRows, undefined, profile);
 
   const jobId = nanoid();
 
-  await db
-    .insert(importJob)
-    .values({
-      id: jobId,
-      workspaceId: ws.id,
-      filename: file.name,
-      sourceType: parsed.sourceType,
-      status: "importing",
-      totalRows: summary.total,
-      validRows: 0,
-      autoFixedRows: 0,
-      needsReviewRows: 0,
-      duplicateRows: 0,
-      rejectedRows: 0,
-      schemaProfileSnapshot: activeProfile,
-    });
+  await db.insert(importJob).values({
+    id: jobId,
+    workspaceId: ws.id,
+    filename,
+    sourceType,
+    status: "importing",
+    totalRows: summary.total,
+    validRows: 0,
+    autoFixedRows: 0,
+    needsReviewRows: 0,
+    duplicateRows: 0,
+    rejectedRows: 0,
+    schemaProfileSnapshot: profile,
+  });
 
   try {
     for (const row of rows) {
@@ -110,6 +97,7 @@ export async function POST(request: Request) {
         issues: JSON.stringify(allIssues),
       });
 
+      // Only persist normalized records for importable rows
       if (row.status === "valid" || row.status === "auto_fixed") {
         await db.insert(normalizedRecord).values({
           id: nanoid(),
@@ -142,10 +130,7 @@ export async function POST(request: Request) {
       .where(eq(importJob.id, jobId))
       .returning();
 
-    return Response.json({
-      import: updated,
-      warnings: parsed.warnings ?? [],
-    });
+    return Response.json({ import: updated });
   } catch (error) {
     await db
       .update(importJob)
@@ -157,7 +142,7 @@ export async function POST(request: Request) {
       .where(eq(importJob.id, jobId));
 
     return Response.json(
-      { error: "Import failed while processing rows." },
+      { error: { code: "IMPORT_FAILED", message: "Import failed while persisting rows." } },
       { status: 500 }
     );
   }

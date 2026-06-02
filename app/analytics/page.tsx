@@ -79,16 +79,26 @@ export default async function AnalyticsPage() {
 
       {hasData ? (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <AnalyticsCard
               title="Import Success Rate"
               value={formatPercent(data.importSuccessRate)}
-              description="Valid rows / total rows"
+              description="Imported rows / total rows"
             />
             <AnalyticsCard
               title="Duplicate Rate"
               value={formatPercent(data.duplicateRate)}
               description="Duplicate rows / total rows"
+            />
+            <AnalyticsCard
+              title="Rejected Rate"
+              value={formatPercent(data.rejectedRate)}
+              description="Rejected rows / total rows"
+            />
+            <AnalyticsCard
+              title="Auto-fixed"
+              value={formatNumber(data.autoFixedRows)}
+              description="Rows cleaned automatically"
             />
             <AnalyticsCard
               title="Total Amount"
