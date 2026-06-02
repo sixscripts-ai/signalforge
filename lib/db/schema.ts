@@ -157,6 +157,51 @@ export const schemaProfile = pgTable("schema_profile", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// --- Webhook Tables ---
+
+export const webhook = pgTable(
+  "webhook",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    url: text("url").notNull(),
+    signingSecret: text("signing_secret").notNull(),
+    events: jsonb("events").notNull().$type<string[]>(),
+    active: text("active").notNull().default("true"),
+    lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
+    lastStatus: text("last_status"),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_webhook_workspace_id").on(table.workspaceId),
+  ]
+);
+
+export const apiKey = pgTable(
+  "api_key",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    keyPrefix: text("key_prefix").notNull(),
+    keyHash: text("key_hash").notNull(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_api_key_workspace_id").on(table.workspaceId),
+  ]
+);
+
 // Type exports for convenience
 export type ImportJob = typeof importJob.$inferSelect;
 export type NewImportJob = typeof importJob.$inferInsert;
@@ -172,3 +217,9 @@ export type NewSchemaProfileRecord = typeof schemaProfile.$inferInsert;
 
 export type WorkspaceInvitation = typeof workspaceInvitation.$inferSelect;
 export type NewWorkspaceInvitation = typeof workspaceInvitation.$inferInsert;
+
+export type Webhook = typeof webhook.$inferSelect;
+export type NewWebhook = typeof webhook.$inferInsert;
+
+export type ApiKey = typeof apiKey.$inferSelect;
+export type NewApiKey = typeof apiKey.$inferInsert;
