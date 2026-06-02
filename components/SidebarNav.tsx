@@ -94,18 +94,24 @@ export default function SidebarNav({ workspaces, activeWorkspaceId }: SidebarNav
         })}
       </nav>
 
-      <div className="mt-auto border-t border-[var(--border)] pt-4 text-xs text-[var(--muted)] flex items-center justify-between">
-        <div>
-          <p>SignalForge v1 • Ops Console</p>
-          {isLoaded && userId ? (
-            <p className="mt-1 text-[var(--accent)]">Authenticated</p>
-          ) : isLoaded && !userId ? (
-            <SignInButton mode="modal">
-              <button className="mt-1 text-[var(--accent)] hover:underline">Sign In</button>
-            </SignInButton>
-          ) : null}
+      <div className="mt-auto border-t border-[var(--border)] pt-4 flex flex-col gap-3">
+        <div className="flex items-center justify-between text-xs text-[var(--muted)]">
+          <div>
+            <p>SignalForge v1 • Ops Console</p>
+            {isLoaded && userId ? (
+              <p className="mt-1 text-[var(--accent)]">Authenticated</p>
+            ) : isLoaded && !userId ? (
+              <SignInButton mode="modal">
+                <button className="mt-1 text-[var(--accent)] hover:underline">Sign In</button>
+              </SignInButton>
+            ) : null}
+          </div>
+          {isLoaded && userId && <UserButton />}
         </div>
-        {isLoaded && userId && <UserButton />}
+        <div className="flex items-center gap-3 text-[10px] text-[var(--muted)]">
+          <Link href="/terms" className="hover:text-[var(--text)] transition-colors">Terms of Service</Link>
+          <Link href="/privacy" className="hover:text-[var(--text)] transition-colors">Privacy Policy</Link>
+        </div>
       </div>
     </aside>
   );
