@@ -1,5 +1,6 @@
 import Link from "next/link";
-import type { ImportJob } from "@prisma/client";
+import { importJob } from "@/lib/db/schema";
+type ImportJob = typeof importJob.$inferSelect;
 import StatusBadge from "./StatusBadge";
 import { formatDateTime, formatNumber } from "@/lib/format";
 

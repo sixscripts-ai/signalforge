@@ -1,4 +1,6 @@
-import type { NormalizedRecord, ImportJob } from "@prisma/client";
+import { normalizedRecord, importJob } from "@/lib/db/schema";
+type NormalizedRecord = typeof normalizedRecord.$inferSelect;
+type ImportJob = typeof importJob.$inferSelect;
 import { formatCurrency, formatDateTime } from "@/lib/format";
 
 type RecordWithImport = NormalizedRecord & { importJob: ImportJob };
