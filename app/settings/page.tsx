@@ -1,12 +1,14 @@
 import SectionHeader from "@/components/SectionHeader";
 import SchemaProfileForm from "@/components/SchemaProfileForm";
 import { db } from "@/lib/db";
-import { schemaProfile } from "@/lib/db/schema";
+import { schemaProfile, webhook, apiKey } from "@/lib/db/schema";
 import { desc, eq } from "drizzle-orm";
 import { MAX_ROW_COUNT, MAX_UPLOAD_BYTES } from "@/lib/constants";
 import { SchemaProfileConfigSchema, DEFAULT_SCHEMA_PROFILE } from "@/lib/schema-profile";
 import { requireWorkspace, getWorkspaceMembership } from "@/lib/auth";
 import TeamSettings from "@/components/TeamSettings";
+import WebhookSettings from "@/components/WebhookSettings";
+import ApiKeySettings from "@/components/ApiKeySettings";
 import { workspaceMember, workspaceInvitation } from "@/lib/db/schema";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +29,18 @@ export default async function SettingsPage() {
     : DEFAULT_SCHEMA_PROFILE;
 
   const wsMember = await getWorkspaceMembership();
+
+  const webhooks = await db
+    .select()
+    .from(webhook)
+    .where(eq(webhook.workspaceId, ws.id))
+    .orderBy(desc(webhook.createdAt));
+
+  const apiKeys = await db
+    .select()
+    .from(apiKey)
+    .where(eq(apiKey.workspaceId, ws.id))
+    .orderBy(desc(apiKey.createdAt));
   const members = await db
     .select()
     .from(workspaceMember)
@@ -93,6 +107,35 @@ export default async function SettingsPage() {
           currentUserId={wsMember.userId}
         />
       )}
+
+      <div className="border-t border-[var(--border)] pt-8">
+        <WebhookSettings
+          webhooks={webhooks.map(w => ({
+            id: w.id,
+            name: w.name,
+            url: w.url,
+            events: w.events,
+            active: w.active,
+            lastSentAt: w.lastSentAt?.toISOString() ?? null,
+            lastStatus: w.lastStatus ?? null,
+            lastError: w.lastError ?? null,
+            createdAt: w.createdAt.toISOString(),
+          }))}
+        />
+      </div>
+
+      <div className="border-t border-[var(--border)] pt-8">
+        <ApiKeySettings
+          keys={apiKeys.map(k => ({
+            id: k.id,
+            name: k.name,
+            keyPrefix: k.keyPrefix,
+            lastUsedAt: k.lastUsedAt?.toISOString() ?? null,
+            expiresAt: k.expiresAt?.toISOString() ?? null,
+            createdAt: k.createdAt.toISOString(),
+          }))}
+        />
+      </div>
     </div>
   );
 }

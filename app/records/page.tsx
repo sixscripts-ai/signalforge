@@ -6,6 +6,7 @@ import { normalizedRecord, importJob } from "@/lib/db/schema";
 import { eq, desc, ilike, or, and, sql } from "drizzle-orm";
 import { formatNumber } from "@/lib/format";
 
+import ExportButton from "@/components/ExportButton";
 import { requireWorkspace } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -64,12 +65,15 @@ export default async function RecordsPage({
 
   return (
     <div className="space-y-8">
-      <SectionHeader
-        title="Records"
-        description={`${formatNumber(
-          records.length
-        )} normalized records across all imports.`}
-      />
+      <div className="flex items-start justify-between gap-4">
+        <SectionHeader
+          title="Records"
+          description={`${formatNumber(
+            records.length
+          )} normalized records across all imports.`}
+        />
+        <ExportButton scope="records" label="Export All" />
+      </div>
 
       <form
         className="flex flex-wrap items-end gap-3 rounded-xl border border-[var(--border)] bg-[var(--panel-soft)] p-4"

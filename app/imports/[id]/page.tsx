@@ -6,6 +6,7 @@ import StatusBadge from "@/components/StatusBadge";
 import RecordsTable from "@/components/RecordsTable";
 import RowReviewTable from "@/components/RowReviewTable";
 import EmptyState from "@/components/EmptyState";
+import ExportButton from "@/components/ExportButton";
 import { db } from "@/lib/db";
 import { importJob as importJobTable, importRow as importRowTable, normalizedRecord } from "@/lib/db/schema";
 import { eq, desc, asc } from "drizzle-orm";
@@ -152,6 +153,13 @@ export default async function ImportDetailPage({
           value={formatNumber(importJob.rejectedRows)}
           tone="danger"
         />
+      </div>
+
+      <div className="flex flex-wrap gap-3 border-t border-[var(--border)] pt-6">
+        <ExportButton scope="import-rows" importJobId={id} label="Export Rows (CSV)" />
+        {recordsWithJob.length > 0 && (
+          <ExportButton scope="import-records" importJobId={id} label="Export Records (CSV)" />
+        )}
       </div>
 
       <div className="space-y-4">
